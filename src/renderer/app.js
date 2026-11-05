@@ -2,7 +2,7 @@
 /* global api */
 const $ = (sel) => document.querySelector(sel);
 
-const state = { games: [], status: {}, week: null, updates: {}, running: new Set(), launching: {}, filter: 'all', source: 'all', sort: 'recent', query: '', selected: null };
+const state = { games: [], status: {}, week: null, updates: {}, running: new Set(), launching: {}, filter: 'all', source: 'all', sort: 'recent', query: '', selected: null, view: 'home' };
 
 // ---------- Formatage ----------
 const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
@@ -94,9 +94,12 @@ function visibleGames() {
 const selectedGame = () => state.games.find((g) => g.key === state.selected) || visibleGames()[0] || state.games[0];
 
 function select(key) {
-  if (state.selected === key) return;
+  const wasHome = state.view === 'home';
+  if (wasHome) setView('library', false);
+  if (state.selected === key && !wasHome) return;
   state.selected = key;
   render();
+  $('#library').scrollTo({ top: 0 });
   const h = $('#hero');
   h.classList.remove('enter'); void h.offsetWidth; h.classList.add('enter');
 }
@@ -200,6 +203,7 @@ async function pollUpdates() {
       const list = visibleGames(), sel = selectedGame();
       renderSidebar(list);
       renderHero(sel);
+      if (state.view === 'home') renderHome();
       renderDownloadBar();
     }
   } catch { /* ignoré */ }
@@ -214,18 +218,18 @@ async function play(g) {
   hero.classList.remove('launch-fx'); void hero.offsetWidth; hero.classList.add('launch-fx');
   renderSidebar(visibleGames());
   renderHero(g);
+  if (state.view === 'home') { renderHome(); const f = $('.home-feature'); if (f) { f.classList.remove('launch-fx'); void f.offsetWidth; f.classList.add('launch-fx'); } }
   const ok = await api.launch(g.key, 'play');
-  if (!ok) { delete state.launching[g.key]; toast("Impossible de lancer ce jeu."); renderHero(g); return; }
+  if (!ok) { delete state.launching[g.key]; toast("Impossible de lancer ce jeu."); renderHero(g); if (state.view === 'home') renderHome(); return; }
   setTimeout(pollUpdates, 1500);
 }
 
-function renderHero(g) {
-  const hero = $('#hero');
-  if (!g) { hero.replaceChildren(); return; }
+// Bouton principal d'un jeu (Jouer / Lancement… / Lancé / Mettre à jour / Installer)
+function actionButton(g) {
   const u = state.updates[g.key];
   const needsUpdate = g.installed && u && (u.state === 'pending' || u.state === 'paused');
   const updating = g.installed && u?.state === 'updating';
-  const action = needsUpdate
+  return needsUpdate
     ? el('button', { type: 'button', class: 'btn btn-update', title: 'Ouvre les téléchargements Steam', onclick: async () => { await api.launch(g.key, 'update'); toast(`Steam s'ouvre sur Téléchargements : clique sur le bouton de téléchargement à côté de ${g.title} pour lancer la mise à jour. La progression s'affichera ici.`); setTimeout(pollUpdates, 1500); } }, svg(ICONS.update), u.state === 'paused' ? 'Reprendre' : 'Mettre à jour')
     : updating
     ? el('button', { type: 'button', class: 'btn btn-update', onclick: () => api.openDownloads() }, svg(ICONS.update), 'Mise à jour…')
@@ -236,6 +240,15 @@ function renderHero(g) {
     : g.installed
     ? el('button', { type: 'button', class: 'btn btn-play', 'aria-disabled': String(!g.launchUrl), onclick: () => play(g) }, svg(ICONS.play), 'Jouer')
     : el('button', { type: 'button', class: 'btn btn-install', 'aria-disabled': String(!g.installUrl), onclick: () => api.launch(g.key, 'install') }, svg(ICONS.install), g.installUrl ? 'Installer' : `Installer depuis ${SOURCES[g.source]?.name || 'le launcher'}`);
+}
+
+function renderHero(g) {
+  const hero = $('#hero');
+  if (!g) { hero.replaceChildren(); return; }
+  const u = state.updates[g.key];
+  const needsUpdate = g.installed && u && (u.state === 'pending' || u.state === 'paused');
+  const updating = g.installed && u?.state === 'updating';
+  const action = actionButton(g);
   const coverBtn = el('button', {
     type: 'button', class: 'btn-ghost', 'aria-label': "Changer l'image du jeu", title: "Changer l'image du jeu",
     onclick: async () => { if (await api.pickCover(g.key)) load(); }
@@ -453,13 +466,174 @@ function render() {
   $('#count').textContent = `${state.games.length} jeux · ${installed} installés`;
   renderBanner();
   renderSidebar(list);
+  renderTabs();
+  if (state.view === 'home') { renderHome(); setAmbience(recentGames()[0] || sel); }
+  else setAmbience(sel);
   renderHero(sel);
-  setAmbience(sel);
   renderStats(sel);
   renderActivity(sel);
   renderWeek(sel);
   renderGrid(list, sel);
   renderDownloadBar();
+}
+
+// ---------- Navigation Accueil / Bibliothèque ----------
+function renderTabs() {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-current', String(t.dataset.view === state.view)));
+  $('#home').hidden = state.view !== 'home';
+  $('#library').hidden = state.view !== 'library';
+}
+function setView(v, doRender = true) {
+  if (state.view === v) return;
+  state.view = v;
+  renderTabs();
+  const box = v === 'home' ? $('#home') : $('#library');
+  box.classList.remove('view-enter'); void box.offsetWidth; box.classList.add('view-enter');
+  if (doRender) render();
+}
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setView(t.dataset.view)));
+
+// ---------- Page d'accueil ----------
+const recentGames = () => state.games.filter((g) => g.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed);
+const homeNews = { keys: '', items: null };
+
+function greeting() {
+  const h = new Date().getHours();
+  const name = state.status.steam?.user?.name;
+  const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
+  return name ? `${hello}, ${name}` : hello;
+}
+
+function weekSummary() {
+  const games = byKey();
+  const perGame = new Map(), perDay = [];
+  let total = 0, daysPlayed = 0;
+  for (const d of state.week?.days || []) {
+    const sessions = d.sessions.filter((s) => games.has(s.gameKey));
+    const mins = sessions.reduce((t, s) => t + (s.minutes || 0), 0);
+    if (sessions.length) daysPlayed++;
+    total += mins;
+    perDay.push({ date: d.date, mins });
+    for (const s of sessions) perGame.set(s.gameKey, (perGame.get(s.gameKey) || 0) + (s.minutes || 0));
+  }
+  const top = [...perGame.entries()].sort((a, b) => b[1] - a[1])[0];
+  const best = perDay.filter((d) => d.mins > 0).sort((a, b) => b.mins - a.mins)[0];
+  return { total, daysPlayed, top: top ? { game: games.get(top[0]), mins: top[1] } : null, best, gamesCount: perGame.size };
+}
+
+function section(title, ...kids) {
+  return el('section', { class: 'block home-block' }, el('div', { class: 'block-head' }, el('h2', {}, title)), ...kids);
+}
+
+function coverRow(list) {
+  return el('div', { class: 'cover-row' }, list.map((g) =>
+    el('button', { type: 'button', class: 'card' + (g.installed ? '' : ' not-installed'), onclick: () => select(g.key) },
+      art(g),
+      el('span', { class: 'card-meta' }, el('span', {}, g.title), el('span', {}, g.minutes ? `${hours(g.minutes)} h` : '')))));
+}
+
+function renderHome() {
+  const box = $('#home');
+  const recent = recentGames();
+  const w = weekSummary();
+  const nodes = [];
+
+  // En-tête
+  const sub = w.total ? `${duration(w.total)} de jeu ces 7 derniers jours, sur ${w.daysPlayed} jour${w.daysPlayed > 1 ? 's' : ''}.`
+    : recent[0] ? `Ta dernière session : ${recent[0].title}, ${relative(recent[0].lastPlayed).toLowerCase()}.` : 'Ta bibliothèque Steam et Epic, réunie ici.';
+  nodes.push(el('header', { class: 'home-head' },
+    el('h1', {}, greeting()),
+    el('p', { class: 'muted' }, sub)));
+
+  // Reprendre
+  const feat = recent.find((g) => g.installed) || recent[0] || state.games[0];
+  if (feat) {
+    const others = recent.filter((g) => g.key !== feat.key).slice(0, 4);
+    const u = state.updates[feat.key];
+    nodes.push(section('Reprendre',
+      el('div', { class: 'resume' },
+        el('div', { class: 'home-feature' },
+          art(feat, ['hero', 'header', 'cover']),
+          el('div', { class: 'feature-inner' },
+            el('span', { class: 'kicker' }, `${SOURCES[feat.source]?.long || ''} · ${relative(feat.lastPlayed)}`),
+            el('h3', {}, feat.title),
+            el('span', { class: 'feature-meta' }, feat.minutes ? `${hours(feat.minutes)} h de jeu` : 'Pas encore de temps de jeu', u?.state ? ` · ${statusText(u)}` : ''),
+            el('div', { class: 'hero-actions' }, actionButton(feat),
+              el('button', { type: 'button', class: 'btn-ghost', 'aria-label': `Voir ${feat.title} dans la bibliothèque`, title: 'Voir la fiche', onclick: () => select(feat.key) },
+                svg('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'))))),
+        others.length ? el('div', { class: 'resume-list' }, others.map((g) =>
+          el('button', { type: 'button', class: 'resume-item', onclick: () => select(g.key) },
+            el('span', { class: 'resume-thumb' }, art(g, ['header', 'hero', 'cover'])),
+            el('span', { class: 'resume-text' },
+              el('span', { class: 'resume-title' }, g.title),
+              el('span', { class: 'muted small' }, statusText(state.updates[g.key]) || (state.running.has(g.key) ? 'Lancé' : relative(g.lastPlayed))))))) : null)));
+  }
+
+  // Ta semaine
+  const stat = (k, v, extra) => el('div', { class: 'stat' }, el('span', { class: 'k' }, k), el('span', { class: 'v' }, v), extra ? el('span', { class: 'muted small' }, extra) : null);
+  const installed = state.games.filter((g) => g.installed);
+  const disk = installed.reduce((t, g) => t + (g.sizeBytes || 0), 0);
+  nodes.push(section('Ta semaine', el('div', { class: 'stats' },
+    stat('Temps de jeu', w.total ? duration(w.total) : '—', w.gamesCount ? `${w.gamesCount} jeu${w.gamesCount > 1 ? 'x' : ''} lancé${w.gamesCount > 1 ? 's' : ''}` : null),
+    stat('Jeu le plus joué', w.top?.game?.title || '—', w.top?.mins ? duration(w.top.mins) : null),
+    stat('Journée la plus active', w.best ? new Date(w.best.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' }) : '—', w.best ? duration(w.best.mins) : null),
+    stat('Jeux installés', String(installed.length), disk ? `${size(disk)} sur le disque` : null))));
+
+  // Mises à jour
+  const games = byKey();
+  const upd = Object.entries(state.updates).filter(([k, u]) => u.state && games.has(k));
+  if (upd.length) {
+    nodes.push(section('Mises à jour', el('div', { class: 'upd-list' }, upd.map(([k, u]) => {
+      const g = games.get(k);
+      return el('div', { class: 'upd-item' },
+        el('button', { type: 'button', class: 'resume-thumb', 'aria-label': g.title, onclick: () => select(g.key) }, art(g, ['header', 'cover'])),
+        el('div', { class: 'upd-main' },
+          el('span', { class: 'resume-title' }, g.title),
+          el('span', { class: 'muted small' }, statusText(u)),
+          u.state !== 'pending' ? el('span', { class: 'bar' + (u.state === 'paused' ? ' paused' : '') }, el('span', { style: `width: ${pct(u.progress).replace(' ', '')}` })) : null),
+        actionButton(g));
+    }))));
+  }
+
+  // Actualités de tes jeux
+  const newsBox = el('div', { class: 'home-news' }, el('p', { class: 'muted' }, 'Chargement des actualités…'));
+  const newsGames = recent.filter((g) => g.source === 'steam').slice(0, 5);
+  if (newsGames.length && !state.status.demo) {
+    nodes.push(section('Actualités de tes jeux', newsBox));
+    fillHomeNews(newsBox, newsGames);
+  }
+
+  // Favoris
+  const favs = state.games.filter((g) => g.favorite);
+  if (favs.length) nodes.push(section('Favoris', coverRow(favs)));
+
+  // À redécouvrir : installés mais pas lancés depuis 30 jours
+  const month = Date.now() - 30 * 86400000;
+  const forgotten = state.games.filter((g) => g.installed && (!g.lastPlayed || g.lastPlayed < month)).sort((a, b) => b.minutes - a.minutes).slice(0, 10);
+  if (forgotten.length) nodes.push(section('À redécouvrir', el('p', { class: 'muted small section-sub' }, "Installés, mais pas lancés depuis plus d'un mois."), coverRow(forgotten)));
+
+  box.replaceChildren(...nodes);
+}
+
+async function fillHomeNews(box, list) {
+  const keys = list.map((g) => g.key).join();
+  if (homeNews.keys !== keys) {
+    homeNews.keys = keys;
+    homeNews.items = null;
+    const results = await Promise.all(list.map(async (g) => {
+      if (!newsCache.has(g.key)) { const d = await api.news(g.id).catch(() => ({ items: [], error: true })); if (!d.error) newsCache.set(g.key, d); }
+      return (newsCache.get(g.key)?.items || []).slice(0, 3).map((n) => ({ ...n, game: g }));
+    }));
+    if (homeNews.keys !== keys) return;
+    homeNews.items = results.flat().sort((a, b) => b.date - a.date).slice(0, 6);
+  }
+  if (!homeNews.items) return;
+  if (!homeNews.items.length) return box.replaceChildren(el('p', { class: 'muted' }, 'Aucune actualité récente pour tes derniers jeux.'));
+  box.replaceChildren(...homeNews.items.map((n) => el(n.url ? 'a' : 'div', { class: 'news-card', href: n.url || null, target: n.url ? '_blank' : null, rel: n.url ? 'noreferrer' : null },
+    el('span', { class: 'news-card-img' }, n.image ? el('img', { src: n.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : null, art(n.game, ['header', 'hero', 'cover'])),
+    el('span', { class: 'news-card-body' },
+      el('span', { class: 'news-src' }, `${n.game.title} · ${new Date(n.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`),
+      el('span', { class: 'news-card-title' }, n.title)))));
 }
 
 // ---------- Chargement ----------
