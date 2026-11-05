@@ -1,0 +1,62 @@
+{
+  "name": "hangar",
+  "productName": "Hangar",
+  "version": "1.0.1",
+  "description": "Hangar : tes jeux Steam et Epic Games réunis, avec la frise de la semaine.",
+  "author": "Mathis",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "release": "electron-builder --win nsis --x64 --publish always"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "fr.mathis.hangar",
+    "productName": "Hangar",
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Hangar",
+      "artifactName": "Hangar-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Hangar-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Mochiizo",
+      "repo": "HangarLauncher",
+      "releaseType": "release"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Mochiizo/HangarLauncher.git"
+  }
+}
