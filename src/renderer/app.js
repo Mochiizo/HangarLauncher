@@ -52,6 +52,7 @@ const ICONS = {
   play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>',
   install: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   star: (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>`,
+  trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   clock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
 };
 
@@ -257,6 +258,10 @@ function renderHero(g) {
     type: 'button', class: 'btn-ghost', 'aria-label': "Revenir à l'image d'origine", title: "Revenir à l'image d'origine",
     onclick: async () => { await api.resetCover(g.key); load(); }
   }, svg(ICONS.undo)) : null;
+  const uninstallBtn = g.installed && !state.running.has(g.key) && !(u?.state === 'updating') ? el('button', {
+    type: 'button', class: 'btn-ghost btn-ghost-danger', 'aria-label': `Désinstaller ${g.title}`, title: 'Désinstaller',
+    onclick: () => askUninstall(g)
+  }, svg(ICONS.trash)) : null;
   const fav = el('button', {
     type: 'button', class: 'btn-ghost', 'aria-label': g.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
     onclick: async () => { g.favorite = await api.toggleFavorite(g.key); render(); }
@@ -267,7 +272,7 @@ function renderHero(g) {
       el('div', { style: 'display:flex;flex-direction:column;gap:8px' },
         el('span', { class: 'kicker' }, SOURCES[g.source]?.long || ''),
         el('h1', {}, g.title)),
-      el('div', { class: 'hero-actions' }, action, (needsUpdate || updating) ? updateBlock(g, u) : null, fav, coverBtn, resetBtn)));
+      el('div', { class: 'hero-actions' }, action, (needsUpdate || updating) ? updateBlock(g, u) : null, fav, coverBtn, resetBtn, uninstallBtn)));
 }
 
 function renderStats(g) {
@@ -475,6 +480,37 @@ function render() {
   renderWeek(sel);
   renderGrid(list, sel);
   renderDownloadBar();
+}
+
+// ---------- Désinstallation ----------
+function askUninstall(g) {
+  const d = $('#confirm-uninstall');
+  $('#cu-title').textContent = `Désinstaller ${g.title} ?`;
+  $('#cu-text').textContent = g.source === 'steam'
+    ? `Steam va s'ouvrir pour confirmer la désinstallation${g.sizeBytes ? ` et libérer ${size(g.sizeBytes)}` : ''}. Ton temps de jeu, tes succès et tes sauvegardes Steam Cloud sont conservés, et tu pourras réinstaller le jeu quand tu veux.`
+    : `Epic Games ne permet pas à une autre application de désinstaller un jeu. Le launcher Epic va s'ouvrir sur ta bibliothèque : clique sur « … » sous ${g.title}, puis sur « Désinstaller ».`;
+  d.returnValue = '';
+  d.onclose = async () => {
+    if (d.returnValue !== 'ok') return;
+    const r = await api.launch(g.key, 'uninstall');
+    if (!r) return toast('Impossible de lancer la désinstallation de ce jeu.');
+    toast(r === 'steam' ? `Confirme la désinstallation dans la fenêtre de Steam. Hangar se mettra à jour tout seul.` : `Le launcher Epic s'ouvre : désinstalle ${g.title} depuis sa bibliothèque.`);
+    watchUninstall(g.key);
+  };
+  d.showModal();
+}
+
+// Rafraîchit la bibliothèque toutes les 5 s pendant 3 min, jusqu'à ce que le jeu ne soit plus installé
+let uninstallWatch = null;
+function watchUninstall(key) {
+  clearInterval(uninstallWatch);
+  const start = Date.now();
+  uninstallWatch = setInterval(async () => {
+    await load(true);
+    const g = state.games.find((x) => x.key === key);
+    if (!g || !g.installed) { clearInterval(uninstallWatch); if (g) toast(`${g.title} a été désinstallé.`); }
+    else if (Date.now() - start > 180000) clearInterval(uninstallWatch);
+  }, 5000);
 }
 
 // ---------- Navigation Accueil / Bibliothèque ----------

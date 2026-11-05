@@ -425,3 +425,12 @@ body { -webkit-font-smoothing: antialiased; }
 .cover-row .card-meta span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 
 @media (prefers-reduced-motion: reduce) { .view-enter > *, .home-feature > .art img { animation: none; transition: none; } }
+
+/* Désinstallation */
+.btn-ghost-danger:hover { background: rgba(229,72,77,.18); border-color: rgba(229,72,77,.55); color: #FF8A8E; }
+.btn-danger { background: linear-gradient(180deg, #EF5B60, #D63C42); color: #fff; height: 44px; padding: 0 20px; font-size: 15px; border-radius: 12px;
+  box-shadow: 0 8px 24px -8px rgba(214,60,66,.6), inset 0 1px 0 rgba(255,255,255,.25); }
+.btn-danger:hover { background: linear-gradient(180deg, #F46C71, #DE474D); }
+.confirm { width: min(460px, calc(100vw - 32px)); }
+.confirm p { line-height: 1.5; }
+.confirm .pill { height: 44px; padding: 0 18px; }

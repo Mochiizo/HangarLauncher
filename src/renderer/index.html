@@ -85,6 +85,17 @@
 <div id="dlbar" class="dlbar" role="status" aria-live="polite" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+<dialog id="confirm-uninstall" class="settings confirm">
+  <form method="dialog">
+    <h2 id="cu-title">Désinstaller ce jeu ?</h2>
+    <p class="muted" id="cu-text"></p>
+    <div class="dialog-actions">
+      <button type="submit" class="pill" value="cancel">Annuler</button>
+      <button type="submit" class="btn btn-danger" value="ok">Désinstaller</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="settings" class="settings">
   <form method="dialog" id="settings-form">
     <h2>Réglages</h2>

@@ -54,6 +54,14 @@ function serveImage(req) {
 function launchGame(key, action) {
   const g = cache.games.find((x) => x.key === key);
   if (!g) return false;
+  if (action === 'uninstall') {
+    if (!g.installed) return false;
+    // Steam : ouvre sa fenêtre de confirmation de désinstallation.
+    // Epic : pas de commande de désinstallation, on ouvre la bibliothèque du launcher.
+    if (g.source === 'steam' && /^\d+$/.test(g.id)) { shell.openExternal(`steam://uninstall/${g.id}`); return 'steam'; }
+    if (g.source === 'epic') { shell.openExternal('com.epicgames.launcher://library'); return 'epic'; }
+    return false;
+  }
   if (action === 'update' && g.source === 'steam') {
     // Steam n'autorise pas une autre appli à démarrer une mise à jour :
     // on ouvre sa page Téléchargements, où la mise à jour attend avec son bouton.
@@ -153,7 +161,7 @@ function registerIpc() {
     try { return { items: await steamNews(appid) }; } catch (e) { return { items: [], error: e.message }; }
   });
   ipcMain.handle('favorite:toggle', (_e, key) => store.toggleFavorite(String(key)));
-  ipcMain.handle('game:launch', (_e, key, action) => launchGame(String(key), ['install', 'update'].includes(action) ? action : 'play'));
+  ipcMain.handle('game:launch', (_e, key, action) => launchGame(String(key), ['install', 'update', 'uninstall'].includes(action) ? action : 'play'));
   ipcMain.handle('running:get', async () => (cache.status.demo ? [] : runningGames(cache.games).catch(() => [])));
   ipcMain.handle('updates:get', () => {
     if (cache.status.demo) return {};
