@@ -543,4 +543,11 @@ if (api.appUpdate) {
   });
 }
 
+if (api.info) api.info().then((i) => {
+  if (!i.preview) return;
+  $('#preview-badge').hidden = false;
+  $('#preview-badge').title = `Version d'aperçu ${i.version} : rien n'est installé, tes données sont une copie`;
+  document.title = 'Hangar — Aperçu';
+});
+
 load().then(pollUpdates);

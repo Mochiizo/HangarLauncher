@@ -32,6 +32,14 @@ Pour que le suivi soit complet, l'appli doit tourner. Fermer la fenêtre la réd
 
 Les données sont dans `%APPDATA%\Hangar\library-data.json`.
 
+## Tester avant de publier (Aperçu)
+
+```bash
+npm run preview    # crée dist-preview/Hangar-Apercu.exe
+```
+
+`Hangar-Apercu.exe` est portable : il se lance d'un double-clic, sans installation. Il porte le badge « Aperçu » et a son propre dossier de données (`%APPDATA%\Hangar Preview`), copié depuis celui de Hangar au premier lancement. Il ne modifie pas le Hangar installé et ne cherche pas de mises à jour. Fermer sa fenêtre le quitte.
+
 ## Développer
 
 ```bash

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
+  info: () => ipcRenderer.invoke('app:info'),
   appUpdate: {
     state: () => ipcRenderer.invoke('app-update:state'),
     check: () => ipcRenderer.invoke('app-update:check'),

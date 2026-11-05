@@ -11,6 +11,10 @@ const { steamNews } = require('./news');
 const artwork = require('./artwork');
 const updater = require('./updater');
 
+// Version « Aperçu » : construite avec `npm run preview`, portable, sans installation.
+// Elle a son propre dossier de données (copie de celles de Hangar) et ne touche pas à l'appli installée.
+const PREVIEW = !!require('../../package.json').hangarPreview;
+
 // Protocole interne pour afficher les images locales (cache Steam, images perso)
 protocol.registerSchemesAsPrivileged([{ scheme: 'libimg', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 
@@ -112,7 +116,7 @@ function week(isDemo) {
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 920, minWidth: 900, minHeight: 600,
-    backgroundColor: '#0F1115', title: 'Hangar', icon: ICON, autoHideMenuBar: true,
+    backgroundColor: '#0F1115', title: PREVIEW ? 'Hangar — Aperçu' : 'Hangar', icon: ICON, autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
@@ -203,9 +207,12 @@ function registerIpc() {
 // L'appli s'appelait « Bibliothèque » : on reprend ses données (temps de jeu, favoris, images) au premier lancement
 function migrateFromOldName() {
   try {
-    const oldDir = path.join(app.getPath('appData'), 'Bibliothèque');
     const newDir = app.getPath('userData');
-    if (!fs.existsSync(path.join(oldDir, 'library-data.json')) || fs.existsSync(path.join(newDir, 'library-data.json'))) return;
+    if (fs.existsSync(path.join(newDir, 'library-data.json'))) return;
+    // Aperçu : on part des données de Hangar installé ; sinon de l'ancienne « Bibliothèque »
+    const oldDir = [...(PREVIEW ? ['Hangar'] : []), 'Bibliothèque'].map((n) => path.join(app.getPath('appData'), n))
+      .find((d) => fs.existsSync(path.join(d, 'library-data.json')));
+    if (!oldDir) return;
     fs.mkdirSync(newDir, { recursive: true });
     fs.copyFileSync(path.join(oldDir, 'library-data.json'), path.join(newDir, 'library-data.json'));
     if (fs.existsSync(path.join(oldDir, 'covers'))) fs.cpSync(path.join(oldDir, 'covers'), path.join(newDir, 'covers'), { recursive: true });
@@ -224,8 +231,9 @@ app.whenReady().then(() => {
   registerProtocol();
   registerIpc();
   createWindow();
-  updater.setup(() => win, () => { quitting = true; });
-  createTray();
+  if (!PREVIEW) updater.setup(() => win, () => { quitting = true; });
+  ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
+  if (!PREVIEW) createTray();
   if (process.argv.includes('--hidden')) win.hide();
   setInterval(() => loadLibrary(true).catch(() => {}), REFRESH_MS);
   startTracker(() => cache.games, (key) => store.addTrackedMinute(key));

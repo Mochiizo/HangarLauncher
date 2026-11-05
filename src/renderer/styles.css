@@ -344,3 +344,8 @@ body { -webkit-font-smoothing: antialiased; }
 .app-update.ready { background: linear-gradient(180deg, #3DBA80, #2A9566); box-shadow: 0 8px 24px -8px rgba(47,158,107,.7), inset 0 1px 0 rgba(255,255,255,.3); }
 .app-update .ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: spin .8s linear infinite; }
 @keyframes upd-in { from { opacity: 0; transform: translateY(-6px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* Badge de la version d'aperçu */
+.preview-badge { margin-left: 4px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: #1A1305; background: linear-gradient(180deg, #F6C463, #E8A93B); box-shadow: 0 4px 14px -4px rgba(232,169,59,.6); }
+.preview-badge[hidden] { display: none; }
