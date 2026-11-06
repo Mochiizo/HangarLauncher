@@ -16,19 +16,22 @@ function listProcesses() {
   if (procCache.data && Date.now() - procCache.at < 1500) return Promise.resolve(procCache.data);
   if (procCache.pending) return procCache.pending;
   procCache.pending = new Promise((resolve) => {
-    const done = (names, paths) => { procCache = { at: Date.now(), data: { names, paths }, pending: null }; resolve(procCache.data); };
+    // entries : [{ name, path, pid }] pour retrouver les processus d'un jeu
+    const done = (names, paths, entries = []) => { procCache = { at: Date.now(), data: { names, paths, entries }, pending: null }; resolve(procCache.data); };
     if (WIN) {
       // chemins complets via PowerShell (CIM) ; repli sur tasklist (noms seuls) si PowerShell échoue
-      const ps = 'Get-CimInstance Win32_Process | ForEach-Object { $_.Name + "|" + $_.ExecutablePath }';
+      const ps = 'Get-CimInstance Win32_Process | ForEach-Object { $_.Name + "|" + $_.ExecutablePath + "|" + $_.ProcessId }';
       execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, maxBuffer: 32 * 1024 * 1024, timeout: 8000 }, (err, out) => {
         if (!err && out) {
-          const names = new Set(), paths = [];
+          const names = new Set(), paths = [], entries = [];
           for (const line of out.split(/\r?\n/)) {
-            const [n, p] = line.split('|');
-            if (n) names.add(n.trim().toLowerCase());
-            if (p && p.trim()) paths.push(p.trim().toLowerCase());
+            const [n, p, id] = line.split('|');
+            const name = (n || '').trim().toLowerCase(), file = (p || '').trim().toLowerCase(), pid = Number(id);
+            if (name) names.add(name);
+            if (file) paths.push(file);
+            if (name && pid) entries.push({ name, path: file, pid });
           }
-          return done(names, paths);
+          return done(names, paths, entries);
         }
         execFile('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (e2, out2) => {
           const names = new Set();
@@ -37,15 +40,17 @@ function listProcesses() {
         });
       });
     } else {
-      execFile('ps', ['-A', '-o', 'args='], { maxBuffer: 16 * 1024 * 1024 }, (err, out) => {
-        const names = new Set(), paths = [];
+      execFile('ps', ['-A', '-o', 'pid=,args='], { maxBuffer: 16 * 1024 * 1024 }, (err, out) => {
+        const names = new Set(), paths = [], entries = [];
         if (!err) for (const line of out.split(/\n/)) {
-          const exe = line.trim().split(/\s+/)[0];
+          const [id, exe] = line.trim().split(/\s+/);
           if (!exe) continue;
-          names.add(path.basename(exe).toLowerCase());
-          if (exe.startsWith('/')) paths.push(exe.toLowerCase());
+          const name = path.basename(exe).toLowerCase(), file = exe.startsWith('/') ? exe.toLowerCase() : '';
+          names.add(name);
+          if (file) paths.push(file);
+          entries.push({ name, path: file, pid: Number(id) });
         }
-        done(names, paths);
+        done(names, paths, entries);
       });
     }
   });
@@ -58,6 +63,17 @@ function isRunning(g, procs) {
     if (procs.paths.some((p) => p.startsWith(dir))) return true;
   }
   return !!g.exes?.some((x) => procs.names.has(x));
+}
+
+// Identifiants des processus d'un jeu (dossier d'installation ou exécutable connu)
+function gamePids(g, procs) {
+  const dir = g.installDir ? norm(g.installDir) + path.sep : null;
+  return (procs.entries || []).filter((e) => (dir && e.path.startsWith(dir)) || g.exes?.includes(e.name)).map((e) => e.pid);
+}
+
+// Vérification quasi instantanée qu'un processus existe encore (sans relancer PowerShell)
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
 // Jeu Steam en cours : Steam l'écrit dans le registre (HKCU\Software\Valve\Steam\RunningAppID)
@@ -92,4 +108,11 @@ function startTracker(getGames, onMinute) {
   return () => clearInterval(timer);
 }
 
-module.exports = { startTracker, runningGames };
+// État d'un jeu pour la surveillance de fin de partie : en cours ? et avec quels processus ?
+async function gameState(g, games) {
+  const procs = await listProcesses();
+  const running = (await runningGames(games)).includes(g.key);
+  return { running, pids: running ? gamePids(g, procs) : [] };
+}
+
+module.exports = { startTracker, runningGames, gameState, pidAlive };

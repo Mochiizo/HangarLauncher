@@ -6,7 +6,7 @@ const { createStore, dayKey } = require('./store');
 const steam = require('./steam');
 const epic = require('./epic');
 const demo = require('./demo');
-const { startTracker, runningGames } = require('./tracker');
+const { startTracker, runningGames, gameState, pidAlive } = require('./tracker');
 const { steamNews } = require('./news');
 const artwork = require('./artwork');
 const updater = require('./updater');
@@ -53,45 +53,68 @@ function serveImage(req) {
 }
 
 // ---------- Hangar se cache pendant la partie, puis revient ----------
-// Après un clic sur Jouer, on surveille le jeu toutes les 3 s :
-//  - dès qu'il tourne → la fenêtre se cache (zone de notification) ou se réduit (aperçu, sans icône) ;
-//  - quand il s'arrête → la fenêtre réapparaît au premier plan.
+// Après un clic sur Jouer :
+//  - on cherche le jeu toutes les 3 s ; dès qu'il tourne → la fenêtre se cache (zone de notification)
+//    ou se réduit (aperçu, sans icône) ;
+//  - pendant la partie, on surveille ses processus chaque seconde (vérification instantanée, sans PowerShell),
+//    avec un contrôle complet toutes les 15 s pour suivre un éventuel changement de processus ;
+//  - quand ils disparaissent, on confirme par un contrôle complet puis la fenêtre revient en ~2 s.
+//    Pendant la première minute, on attend 12 s : un lanceur ou écran de chargement peut passer la main
+//    au vrai jeu (Rocket League…).
+const GONE_EARLY_MS = 12_000, GONE_MS = 1_500, EARLY_PHASE_MS = 60_000;
 let session = null;
 function watchGameSession(key) {
   if (session) clearInterval(session.timer);
   if (store.settings().hideWhilePlaying === false) return;
-  session = { key, started: Date.now(), running: false, misses: 0, hidden: false, timer: null };
+  session = { key, started: Date.now(), running: false, runningSince: 0, pids: [], lastScan: 0, goneSince: 0, hidden: false, busy: false, timer: null };
   const s = session;
+  const finish = () => {
+    clearInterval(s.timer);
+    if (session === s) session = null;
+  };
+  const scan = async () => {
+    s.lastScan = Date.now();
+    const g = cache.games.find((x) => x.key === key);
+    if (!g) return { running: false, pids: [] };
+    return gameState(g, cache.games).catch(() => ({ running: false, pids: [] }));
+  };
   s.timer = setInterval(async () => {
-    const running = (await runningGames(cache.games).catch(() => [])).includes(key);
-    if (session !== s) return clearInterval(s.timer);
-    if (running) {
-      s.misses = 0;
+    if (s.busy || session !== s) return;
+    s.busy = true;
+    try {
+      const now = Date.now();
       if (!s.running) {
-        s.running = true;
-        if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) {
-          if (tray) win.hide(); else win.minimize();
-          s.hidden = true;
-        }
+        // en attente du démarrage du jeu
+        if (now - s.lastScan < 2900) return;
+        const st = await scan();
+        if (st.running) {
+          s.running = true; s.runningSince = Date.now(); s.pids = st.pids;
+          if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) {
+            if (tray) win.hide(); else win.minimize();
+            s.hidden = true;
+          }
+        } else if (now - s.started > 120_000) finish(); // jamais démarré (connexion, mise à jour…)
+        return;
       }
-    } else if (s.running) {
-      // deux vérifications de suite sans le jeu : il est vraiment fermé (évite les faux positifs au chargement)
-      if (++s.misses >= 4) {
-        clearInterval(s.timer);
-        session = null;
-        if (s.hidden && win && !win.isDestroyed()) {
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
-          win.webContents.send('game-ended', key);
-        }
+      // en partie : les processus connus tournent encore ?
+      const alive = s.pids.some(pidAlive);
+      if (alive && !s.goneSince && now - s.lastScan < 15_000) return;
+      // processus inconnus (jeu repéré seulement via Steam) : contrôle complet toutes les 3 s, pas plus
+      if (!s.pids.length && !s.goneSince && now - s.lastScan < 2900) return;
+      const st = await scan();
+      if (st.running) { s.goneSince = 0; s.pids = st.pids; return; }
+      if (!s.goneSince) s.goneSince = Date.now();
+      const wait = Date.now() - s.runningSince < EARLY_PHASE_MS ? GONE_EARLY_MS : GONE_MS;
+      if (Date.now() - s.goneSince < wait) return;
+      finish();
+      if (s.hidden && win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        win.webContents.send('game-ended', key);
       }
-    } else if (Date.now() - s.started > 120000) {
-      // le jeu n'a jamais démarré (connexion, mise à jour…) : on arrête de surveiller
-      clearInterval(s.timer);
-      session = null;
-    }
-  }, 3000);
+    } finally { s.busy = false; }
+  }, 1000);
 }
 
 // Liens externes : une page de jeu du magasin Steam s'ouvre dans l'appli Steam si elle est installée,
