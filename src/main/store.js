@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const empty = () => ({
-  settings: { steamPath: '', epicPath: '', steamApiKey: '', steamId: '', accent: '#E8B04B' },
+  settings: { steamPath: '', epicPath: '', steamApiKey: '', steamId: '', accent: '#E8B04B', hideWhilePlaying: true },
   snapshots: {},   // { "2026-11-05": { "steam-123": totalMinutes } }
   tracked: {},     // { "2026-11-05": { "epic-Foo": minutes } } (détection de processus)
   epicTotals: {},  // { "epic-Foo": minutes }
@@ -13,6 +13,7 @@ const empty = () => ({
   favorites: {},
   nameCache: {},
   assetCache: {},   // { appid: { at, cover, hero, header } } images boutique Steam
+  releaseCache: {},  // { appid: { at, data } } fiches boutique du calendrier des sorties
   customCovers: {}  // { gameKey: "fichier.jpg" } images choisies par l'utilisateur
 });
 

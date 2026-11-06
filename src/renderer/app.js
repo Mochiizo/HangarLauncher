@@ -112,6 +112,8 @@ function pills(container, defs, current, onPick) {
 }
 
 function renderSidebar(list) {
+  // La colonne de gauche reste toujours triée par ordre alphabétique (le tri choisi ne s'applique qu'à la grille)
+  list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base', numeric: true }));
   pills($('#filters'), [['all', 'Tous'], ['installed', 'Installés'], ['fav', 'Favoris']], state.filter, (v) => { state.filter = v; render(); });
   const present = Object.entries(SOURCES).filter(([id]) => state.games.some((g) => g.source === id));
   const srcBox = $('#sources');
@@ -517,6 +519,8 @@ function watchUninstall(key) {
 function renderTabs() {
   document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-current', String(t.dataset.view === state.view)));
   $('#home').hidden = state.view !== 'home';
+  // Sur l'accueil, la liste des jeux à gauche disparaît : la page prend toute la largeur
+  $('.layout').classList.toggle('home-mode', state.view === 'home');
   $('#library').hidden = state.view !== 'library';
 }
 function setView(v, doRender = true) {
@@ -605,6 +609,17 @@ function renderHome() {
               el('span', { class: 'muted small' }, statusText(state.updates[g.key]) || (state.running.has(g.key) ? 'Lancé' : relative(g.lastPlayed))))))) : null)));
   }
 
+  // Calendrier des sorties
+  if (!state.status.demo) {
+    const cal = el('div', { class: 'cal-wrap' }, el('p', { class: 'muted' }, 'Chargement du calendrier des sorties…'));
+    nodes.push(el('section', { class: 'block home-block' },
+      el('div', { class: 'block-head' },
+        el('div', {}, el('h2', {}, 'Calendrier des sorties'),
+          el('p', { class: 'muted small section-sub', id: 'cal-sub' }, 'Les jeux qui viennent de sortir et ceux qui arrivent sur Steam.'))),
+      cal));
+    fillCalendar(cal);
+  }
+
   // Ta semaine
   const stat = (k, v, extra) => el('div', { class: 'stat' }, el('span', { class: 'k' }, k), el('span', { class: 'v' }, v), extra ? el('span', { class: 'muted small' }, extra) : null);
   const installed = state.games.filter((g) => g.installed);
@@ -651,6 +666,97 @@ function renderHome() {
   box.replaceChildren(...nodes);
 }
 
+// ---------- Calendrier des sorties ----------
+const releases = { data: null, at: 0, loading: null };
+const HEART = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg>';
+
+async function fillCalendar(box) {
+  if (!releases.data || Date.now() - releases.at > 3 * 3600000) {
+    releases.loading ??= api.releases().catch(() => ({ games: [], error: 'network' }));
+    releases.data = await releases.loading;
+    releases.loading = null;
+    releases.at = Date.now();
+  }
+  if (!box.isConnected) return;
+  const d = releases.data;
+  const sub = $('#cal-sub');
+  if (sub && d.wishlist) sub.textContent = 'Ta liste de souhaits Steam, plus les nouveautés et les jeux à venir.';
+  if (!d.games?.length) return box.replaceChildren(el('p', { class: 'muted' }, d.error ? "Impossible de charger le calendrier pour l'instant." : 'Aucune sortie à afficher pour le moment.'));
+
+  // une colonne par date de sortie, en partant de quelques jours avant aujourd'hui
+  const today = new Date().toLocaleDateString('sv-SE');
+  const byDate = new Map();
+  for (const g of d.games) { if (!byDate.has(g.date)) byDate.set(g.date, []); byDate.get(g.date).push(g); }
+  if (!byDate.has(today)) byDate.set(today, []);
+  const dates = [...byDate.keys()].sort();
+
+  const cols = dates.map((date) => {
+    const list = byDate.get(date);
+    const isToday = date === today;
+    const dt = new Date(date + 'T12:00:00');
+    const label = isToday ? "Aujourd'hui" : `${dt.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')} ${dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
+    const shown = list.slice(0, 3);
+    return el('div', { class: 'cal-col' + (isToday ? ' today' : '') + (date < today ? ' past' : ''), 'data-date': date },
+      el('div', { class: 'cal-day' }, el('span', {}, label)),
+      el('div', { class: 'cal-items' },
+        shown.length ? shown.map((g) => calItem(g)) : el('div', { class: 'cal-empty' }, 'Aucune sortie'),
+        list.length > 3 ? el('span', { class: 'cal-more' }, `+ ${list.length - 3} autre${list.length > 4 ? 's' : ''}`) : null));
+  });
+
+  const track = el('div', { class: 'cal-track' }, cols);
+  const scrollBy = (dir) => track.scrollBy({ left: dir * (track.clientWidth * 0.8), behavior: 'smooth' });
+  const prev = el('button', { type: 'button', class: 'cal-arrow prev', 'aria-label': 'Sorties précédentes', onclick: () => scrollBy(-1) },
+    svg('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'));
+  const next = el('button', { type: 'button', class: 'cal-arrow next', 'aria-label': 'Sorties suivantes', onclick: () => scrollBy(1) },
+    svg('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>'));
+  const updateArrows = () => { prev.disabled = track.scrollLeft < 8; next.disabled = track.scrollLeft + track.clientWidth > track.scrollWidth - 8; };
+  track.addEventListener('scroll', updateArrows, { passive: true });
+  box.replaceChildren(el('div', { class: 'cal' }, prev, track, next));
+
+  // place « Aujourd'hui » vers la gauche, en laissant voir les sorties des derniers jours
+  requestAnimationFrame(() => {
+    const t = track.querySelector('.cal-col.today');
+    if (t) track.scrollLeft = Math.max(0, t.offsetLeft - track.offsetLeft - t.offsetWidth * 2 - 24);
+    updateArrows();
+  });
+}
+
+function calItem(g) {
+  const tip = el('span', { class: 'cal-tip', role: 'tooltip' },
+    el('strong', {}, g.name),
+    el('span', { class: 'cal-tip-date' }, `${g.comingSoon ? 'Sortie prévue' : 'Date de parution'} : ${g.dateText}`),
+    g.description ? el('span', { class: 'cal-tip-desc' }, g.description) : null,
+    g.genres.length ? el('span', { class: 'cal-tags' }, g.genres.map((t) => el('span', {}, t))) : null);
+  const a = el('a', { class: 'cal-item', href: g.url, target: '_blank', rel: 'noreferrer', 'aria-label': `${g.name}, ${g.dateText}` },
+    g.image ? el('img', { src: g.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : null,
+    el('span', { class: 'cal-name' }, g.name),
+    g.wishlist ? el('span', { class: 'cal-wish', title: 'Dans ta liste de souhaits' }, svg(HEART)) : null);
+  a._tip = tip;
+  return a;
+}
+
+// Bulle d'info au survol : affichée hors du carrousel (qui la couperait), du côté où il y a de la place
+let tipTimer = null;
+function showCalTip(item) {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => {
+    let box = $('#cal-tip');
+    if (!box) { box = el('div', { id: 'cal-tip', class: 'cal-tip' }); document.body.append(box); }
+    box.replaceChildren(...item._tip.cloneNode(true).childNodes);
+    const r = item.getBoundingClientRect(), w = 320;
+    const right = r.right + 12 + w <= window.innerWidth - 8;
+    box.style.left = `${right ? r.right + 12 : Math.max(8, r.left - 12 - w)}px`;
+    box.classList.add('on');
+    const h = box.offsetHeight;
+    box.style.top = `${Math.min(Math.max(8, r.top - 6), window.innerHeight - h - 8)}px`;
+  }, 220);
+}
+function hideCalTip() { clearTimeout(tipTimer); $('#cal-tip')?.classList.remove('on'); }
+document.addEventListener('pointerover', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._tip) showCalTip(it); });
+document.addEventListener('pointerout', (e) => { const it = e.target.closest?.('.cal-item'); if (it && !it.contains(e.relatedTarget)) hideCalTip(); });
+document.addEventListener('focusin', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._tip) showCalTip(it); else hideCalTip(); });
+document.addEventListener('scroll', hideCalTip, true);
+
 async function fillHomeNews(box, list) {
   const keys = list.map((g) => g.key).join();
   if (homeNews.keys !== keys) {
@@ -695,6 +801,7 @@ async function openSettings() {
   f.epicPath.value = s.epicPath; f.epicPath.placeholder = s.defaults.epicPath || 'Non disponible sur ce système';
   f.steamApiKey.value = s.steamApiKey;
   f.openAtLogin.checked = s.openAtLogin;
+  f.hideWhilePlaying.checked = s.hideWhilePlaying !== false;
   const st = state.status.steam || {}, ep = state.status.epic || {};
   $('#steam-detected').className = 'small ' + (st.found ? 'ok' : 'warn');
   $('#steam-detected').textContent = st.found ? `Steam détecté${st.user ? ` · compte ${st.user.name}` : ''}` : 'Steam introuvable à cet emplacement.';
@@ -705,7 +812,7 @@ async function openSettings() {
 
 $('#settings-form').addEventListener('submit', async () => {
   const f = $('#settings-form');
-  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked });
+  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked });
   load(true);
 });
 $('#settings-cancel').addEventListener('click', () => $('#settings').close());
@@ -758,6 +865,14 @@ if (api.info) api.info().then((i) => {
   $('#preview-badge').hidden = false;
   $('#preview-badge').title = `Version d'aperçu ${i.version} : rien n'est installé, tes données sont une copie`;
   document.title = 'Hangar — Aperçu';
+});
+
+// Retour au premier plan après une partie : on rafraîchit tout de suite (temps de jeu, état « Jouer »)
+if (api.onGameEnded) api.onGameEnded((key) => {
+  state.running.delete(key);
+  load(true).then(pollUpdates);
+  const g = state.games.find((x) => x.key === key);
+  if (g) toast(`Bon retour ! Fin de la partie sur ${g.title}.`);
 });
 
 load().then(pollUpdates);

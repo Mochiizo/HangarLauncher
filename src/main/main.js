@@ -10,6 +10,7 @@ const { startTracker, runningGames } = require('./tracker');
 const { steamNews } = require('./news');
 const artwork = require('./artwork');
 const updater = require('./updater');
+const { getReleases } = require('./releases');
 
 // Version « Aperçu » : construite avec `npm run preview`, portable, sans installation.
 // Elle a son propre dossier de données (copie de celles de Hangar) et ne touche pas à l'appli installée.
@@ -49,6 +50,48 @@ function serveImage(req) {
     const type = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }[path.extname(file).toLowerCase()] || 'application/octet-stream';
     return new Response(fs.readFileSync(file), { headers: { 'Content-Type': type, 'Cache-Control': 'max-age=3600', 'Access-Control-Allow-Origin': '*' } });
   }
+}
+
+// ---------- Hangar se cache pendant la partie, puis revient ----------
+// Après un clic sur Jouer, on surveille le jeu toutes les 3 s :
+//  - dès qu'il tourne → la fenêtre se cache (zone de notification) ou se réduit (aperçu, sans icône) ;
+//  - quand il s'arrête → la fenêtre réapparaît au premier plan.
+let session = null;
+function watchGameSession(key) {
+  if (session) clearInterval(session.timer);
+  if (store.settings().hideWhilePlaying === false) return;
+  session = { key, started: Date.now(), running: false, misses: 0, hidden: false, timer: null };
+  const s = session;
+  s.timer = setInterval(async () => {
+    const running = (await runningGames(cache.games).catch(() => [])).includes(key);
+    if (session !== s) return clearInterval(s.timer);
+    if (running) {
+      s.misses = 0;
+      if (!s.running) {
+        s.running = true;
+        if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) {
+          if (tray) win.hide(); else win.minimize();
+          s.hidden = true;
+        }
+      }
+    } else if (s.running) {
+      // deux vérifications de suite sans le jeu : il est vraiment fermé (évite les faux positifs au chargement)
+      if (++s.misses >= 2) {
+        clearInterval(s.timer);
+        session = null;
+        if (s.hidden && win && !win.isDestroyed()) {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+          win.webContents.send('game-ended', key);
+        }
+      }
+    } else if (Date.now() - s.started > 120000) {
+      // le jeu n'a jamais démarré (connexion, mise à jour…) : on arrête de surveiller
+      clearInterval(s.timer);
+      session = null;
+    }
+  }, 3000);
 }
 
 function launchGame(key, action) {
@@ -161,7 +204,23 @@ function registerIpc() {
     try { return { items: await steamNews(appid) }; } catch (e) { return { items: [], error: e.message }; }
   });
   ipcMain.handle('favorite:toggle', (_e, key) => store.toggleFavorite(String(key)));
-  ipcMain.handle('game:launch', (_e, key, action) => launchGame(String(key), ['install', 'update', 'uninstall'].includes(action) ? action : 'play'));
+  ipcMain.handle('game:launch', (_e, key, action) => {
+    const act = ['install', 'update', 'uninstall'].includes(action) ? action : 'play';
+    const r = launchGame(String(key), act);
+    if (r && act === 'play') watchGameSession(String(key));
+    return r;
+  });
+  ipcMain.handle('releases:get', async () => {
+    if (cache.status.demo) return { games: [], demo: true };
+    try {
+      const owned = new Set(cache.games.filter((g) => g.source === 'steam').map((g) => g.id));
+      const r = await getReleases({ steamId: store.settings().steamId || cache.status.steam?.user?.steamId, cache: store.db.releaseCache, ownedIds: owned });
+      // on ne garde en cache que les fiches récentes
+      for (const [id, v] of Object.entries(store.db.releaseCache)) if (Date.now() - v.at > 7 * 86400000) delete store.db.releaseCache[id];
+      store.save();
+      return r;
+    } catch (e) { return { games: [], error: e.message }; }
+  });
   ipcMain.handle('running:get', async () => (cache.status.demo ? [] : runningGames(cache.games).catch(() => [])));
   ipcMain.handle('updates:get', () => {
     if (cache.status.demo) return {};
@@ -202,6 +261,7 @@ function registerIpc() {
     const allowed = ['steamPath', 'epicPath', 'steamApiKey', 'steamId', 'accent'];
     const clean = {};
     for (const k of allowed) if (typeof patch?.[k] === 'string') clean[k] = patch[k].trim();
+    if (typeof patch?.hideWhilePlaying === 'boolean') clean.hideWhilePlaying = patch.hideWhilePlaying;
     store.setSettings(clean);
     if (typeof patch?.openAtLogin === 'boolean') app.setLoginItemSettings({ openAtLogin: patch.openAtLogin, args: ['--hidden'] });
     return true;

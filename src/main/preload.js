@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   launch: (key, action) => ipcRenderer.invoke('game:launch', key, action),
   updates: () => ipcRenderer.invoke('updates:get'),
   running: () => ipcRenderer.invoke('running:get'),
+  releases: () => ipcRenderer.invoke('releases:get'),
+  onGameEnded: (cb) => ipcRenderer.on('game-ended', (_e, key) => cb(key)),
   openDownloads: () => ipcRenderer.invoke('steam:downloads'),
   pickCover: (key) => ipcRenderer.invoke('cover:pick', key),
   resetCover: (key) => ipcRenderer.invoke('cover:reset', key),
