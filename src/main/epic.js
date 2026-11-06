@@ -84,6 +84,7 @@ function library(settings) {
       installed: true, sizeBytes: Number(m.InstallSize || 0),
       images: pickImages(item),
       exes: m.LaunchExecutable ? [path.basename(m.LaunchExecutable).toLowerCase()] : [],
+      installDir: m.InstallLocation || null,
       launchUrl: `com.epicgames.launcher://apps/${encodeURIComponent(`${m.CatalogNamespace}:${m.CatalogItemId}:${m.AppName}`)}?action=launch&silent=true`,
       installUrl: null
     });

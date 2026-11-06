@@ -19,8 +19,8 @@ function setup(getWindow, beforeQuit) {
   ipcMain.handle('app-update:check', () => check(true));
   ipcMain.handle('app-update:download', async () => {
     if (!autoUpdater || state.status !== 'available') return false;
-    emit({ status: 'downloading', percent: 0 });
-    try { await autoUpdater.downloadUpdate(); return true; } catch (e) { emit({ status: 'error', error: e.message }); return false; }
+    emit({ status: 'downloading', percent: 0, failed: false, error: null });
+    try { await autoUpdater.downloadUpdate(); return true; } catch (e) { emit({ status: 'available', error: String(e?.message || e), failed: true }); return false; }
   });
   ipcMain.handle('app-update:install', () => {
     if (!autoUpdater || state.status !== 'ready') return false;
@@ -42,7 +42,12 @@ function setup(getWindow, beforeQuit) {
   autoUpdater.on('update-available', (info) => emit({ status: 'available', version: info.version, error: null }));
   autoUpdater.on('download-progress', (p) => emit({ status: 'downloading', percent: Math.round(p.percent || 0) }));
   autoUpdater.on('update-downloaded', (info) => emit({ status: 'ready', version: info.version, percent: 100 }));
-  autoUpdater.on('error', (e) => emit({ status: state.status === 'downloading' ? 'available' : 'idle', error: String(e?.message || e) }));
+  autoUpdater.on('error', (e) => {
+    const msg = String(e?.message || e);
+    // échec pendant le téléchargement (fichier corrompu, empreinte qui ne correspond pas…) : on prévient l'utilisateur
+    const failed = state.status === 'downloading';
+    emit({ status: failed ? 'available' : 'idle', error: msg, failed });
+  });
 
   setTimeout(() => check(false), 8000);
   setInterval(() => check(false), 4 * 60 * 60 * 1000); // toutes les 4 h

@@ -10,7 +10,7 @@ const { startTracker, runningGames } = require('./tracker');
 const { steamNews } = require('./news');
 const artwork = require('./artwork');
 const updater = require('./updater');
-const { getReleases } = require('./releases');
+const { getReleases, details: releaseDetails } = require('./releases');
 
 // Version « Aperçu » : construite avec `npm run preview`, portable, sans installation.
 // Elle a son propre dossier de données (copie de celles de Hangar) et ne touche pas à l'appli installée.
@@ -76,7 +76,7 @@ function watchGameSession(key) {
       }
     } else if (s.running) {
       // deux vérifications de suite sans le jeu : il est vraiment fermé (évite les faux positifs au chargement)
-      if (++s.misses >= 2) {
+      if (++s.misses >= 4) {
         clearInterval(s.timer);
         session = null;
         if (s.hidden && win && !win.isDestroyed()) {
@@ -92,6 +92,16 @@ function watchGameSession(key) {
       session = null;
     }
   }, 3000);
+}
+
+// Liens externes : une page de jeu du magasin Steam s'ouvre dans l'appli Steam si elle est installée,
+// le reste dans le navigateur
+function openLink(url) {
+  if (!/^https:\/\//.test(url)) return;
+  const m = url.match(/^https:\/\/store\.steampowered\.com\/app\/(\d+)/);
+  const steamPath = store.settings().steamPath || steam.defaultSteamPath();
+  if (m && steamPath && fs.existsSync(steamPath)) shell.openExternal(`steam://store/${m[1]}`);
+  else shell.openExternal(url);
 }
 
 function launchGame(key, action) {
@@ -115,6 +125,39 @@ function launchGame(key, action) {
   if (typeof url !== 'string' || !LAUNCH_RE.test(url)) return false;
   shell.openExternal(url);
   return true;
+}
+
+// Empreinte légère de la bibliothèque : jeux Steam installés (toutes les bibliothèques, disques externes compris),
+// manifestes Epic et cache du catalogue Epic (mis à jour quand un jeu est ajouté au compte)
+function librarySignature() {
+  const settings = store.settings();
+  const parts = [];
+  try {
+    const sp = settings.steamPath || steam.defaultSteamPath();
+    if (sp && fs.existsSync(sp)) parts.push([...steam.installedApps(sp).keys()].sort().join(','));
+  } catch { /* ignore */ }
+  const ep = settings.epicPath || epic.defaultEpicDataPath();
+  if (ep) {
+    try { parts.push(fs.readdirSync(path.join(ep, 'Manifests')).filter((f) => f.endsWith('.item')).sort().join(',')); } catch { /* ignore */ }
+    try { const st = fs.statSync(path.join(ep, 'Catalog', 'catcache.bin')); parts.push(`${st.size}:${st.mtimeMs | 0}`); } catch { /* ignore */ }
+  }
+  return parts.join('|');
+}
+
+// Vérifie toutes les 15 s si un jeu a été installé, désinstallé ou ajouté, et prévient l'interface
+function watchLibrary() {
+  let last = null, busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    const sig = librarySignature();
+    if (last === null) { last = sig; return; }
+    if (sig === last) return;
+    last = sig; busy = true;
+    try {
+      await loadLibrary(true);
+      if (win && !win.isDestroyed()) win.webContents.send('library-changed');
+    } catch { /* ignore */ } finally { busy = false; }
+  }, 15_000);
 }
 
 async function loadLibrary(force = false) {
@@ -172,7 +215,7 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   // Les liens externes s'ouvrent dans le navigateur, jamais dans l'appli
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.setWindowOpenHandler(({ url }) => { openLink(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   // Fermer la fenêtre la cache dans la zone de notification : le suivi du temps de jeu continue
   win.on('close', (e) => { if (!quitting && tray) { e.preventDefault(); win.hide(); } });
@@ -180,7 +223,9 @@ function createWindow() {
 
 function createTray() {
   try {
-    tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
+    // icône simplifiée (toit + fusée), lisible en 16 px près de l'horloge
+    const trayIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'build', 'tray.png'));
+    tray = new Tray(trayIcon.isEmpty() ? nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }) : trayIcon.resize({ width: 16, height: 16, quality: 'best' }));
     tray.setToolTip('Hangar');
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Ouvrir Hangar', click: () => { win.show(); win.focus(); } },
@@ -197,7 +242,7 @@ function registerIpc() {
   ipcMain.handle('library:get', async (_e, force) => {
     const lib = await loadLibrary(!!force);
     const fav = store.db.favorites;
-    return { status: lib.status, games: lib.games.map((g) => ({ ...g, exes: undefined, favorite: !!fav[g.key] })) };
+    return { status: lib.status, games: lib.games.map((g) => ({ ...g, exes: undefined, installDir: undefined, favorite: !!fav[g.key] })) };
   });
   ipcMain.handle('week:get', async () => week((await loadLibrary()).status.demo));
   ipcMain.handle('news:get', async (_e, appid) => {
@@ -220,6 +265,11 @@ function registerIpc() {
       store.save();
       return r;
     } catch (e) { return { games: [], error: e.message }; }
+  });
+  ipcMain.handle('release:details', async (_e, id) => {
+    const d = await releaseDetails(String(id), store.db.releaseCache).catch(() => null);
+    store.save();
+    return d;
   });
   ipcMain.handle('running:get', async () => (cache.status.demo ? [] : runningGames(cache.games).catch(() => [])));
   ipcMain.handle('updates:get', () => {
@@ -303,7 +353,8 @@ app.whenReady().then(() => {
   ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
   if (!PREVIEW) createTray();
   if (process.argv.includes('--hidden')) win.hide();
-  setInterval(() => loadLibrary(true).catch(() => {}), REFRESH_MS);
+  setInterval(() => loadLibrary(true).then(() => { if (win && !win.isDestroyed()) win.webContents.send('library-changed'); }).catch(() => {}), REFRESH_MS);
+  watchLibrary();
   startTracker(() => cache.games, (key) => store.addTrackedMinute(key));
   app.on('activate', () => { if (win) win.show(); });
 });

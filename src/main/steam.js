@@ -66,7 +66,8 @@ function installedApps(steamPath) {
       if (!st) continue;
       const appid = Number(vdf.get(st, 'appid'));
       if ((Number(vdf.get(st, 'StateFlags')) & 4) && !IGNORED.has(appid)) {
-        map.set(appid, { name: vdf.get(st, 'name'), sizeBytes: Number(vdf.get(st, 'SizeOnDisk') || 0) });
+        const dirName = vdf.get(st, 'installdir');
+        map.set(appid, { name: vdf.get(st, 'name'), sizeBytes: Number(vdf.get(st, 'SizeOnDisk') || 0), installDir: dirName ? path.join(folder, 'steamapps', 'common', dirName) : null });
       }
     }
   }
@@ -127,7 +128,7 @@ async function library(settings, nameCache) {
     games.set(appid, {
       key: `steam-${appid}`, source: 'steam', id: String(appid), title,
       minutes: p.minutes || 0, minutes2w: p.minutes2w || 0, lastPlayed: p.lastPlayed || 0,
-      installed: !!inst, sizeBytes: inst?.sizeBytes || 0, images: images(appid),
+      installed: !!inst, sizeBytes: inst?.sizeBytes || 0, installDir: inst?.installDir || null, images: images(appid),
       launchUrl: `steam://rungameid/${appid}`, installUrl: `steam://install/${appid}`, ...extra
     });
   };
@@ -159,7 +160,7 @@ async function library(settings, nameCache) {
   return { games: [...games.values()], status };
 }
 
-module.exports = { library, defaultSteamPath };
+module.exports = { library, defaultSteamPath, installedApps };
 
 // ---------- État des mises à jour (lu en direct dans les appmanifest) ----------
 // Bits de StateFlags (client Steam)

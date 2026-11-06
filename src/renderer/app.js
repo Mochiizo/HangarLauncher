@@ -611,7 +611,7 @@ function renderHome() {
 
   // Calendrier des sorties
   if (!state.status.demo) {
-    const cal = el('div', { class: 'cal-wrap' }, el('p', { class: 'muted' }, 'Chargement du calendrier des sorties…'));
+    const cal = el('div', { class: 'cal-wrap' });
     nodes.push(el('section', { class: 'block home-block' },
       el('div', { class: 'block-head' },
         el('div', {}, el('h2', {}, 'Calendrier des sorties'),
@@ -670,91 +670,169 @@ function renderHome() {
 const releases = { data: null, at: 0, loading: null };
 const HEART = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg>';
 
+let calPage = 1; // semaine affichée (gardée entre deux affichages)
+
 async function fillCalendar(box) {
-  if (!releases.data || Date.now() - releases.at > 3 * 3600000) {
-    releases.loading ??= api.releases().catch(() => ({ games: [], error: 'network' }));
-    releases.data = await releases.loading;
-    releases.loading = null;
-    releases.at = Date.now();
-  }
-  if (!box.isConnected) return;
-  const d = releases.data;
+  const fresh = releases.data && Date.now() - releases.at < 3 * 3600000;
+  // Le calendrier s'affiche tout de suite ; les jeux arrivent ensuite à leur place
+  if (!fresh) renderCalendar(box, null);
+  else return renderCalendar(box, releases.data);
+  releases.loading ??= api.releases().catch(() => ({ games: [], error: 'network' }));
+  const data = await releases.loading;
+  releases.loading = null;
+  if (!data.error || data.games?.length) { releases.data = data; releases.at = Date.now(); }
+  if (box.isConnected) renderCalendar(box, data, true);
+}
+
+function renderCalendar(box, d, reveal = false) {
+  const loading = !d;
   const sub = $('#cal-sub');
-  if (sub && d.wishlist) sub.textContent = 'Ta liste de souhaits Steam, plus les nouveautés et les jeux à venir.';
-  if (!d.games?.length) return box.replaceChildren(el('p', { class: 'muted' }, d.error ? "Impossible de charger le calendrier pour l'instant." : 'Aucune sortie à afficher pour le moment.'));
+  if (sub && d?.wishlist) sub.textContent = 'Ta liste de souhaits Steam, plus les nouveautés et les jeux à venir.';
+  if (reveal && d?.error && !d.games?.length) toast("Impossible de charger le calendrier des sorties pour l'instant.");
 
-  // une colonne par date de sortie, en partant de quelques jours avant aujourd'hui
-  const today = new Date().toLocaleDateString('sv-SE');
+  // 5 semaines du lundi au dimanche : la semaine dernière, celle-ci et les 3 suivantes
+  const now = new Date();
+  const today = now.toLocaleDateString('sv-SE');
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) - 7);
   const byDate = new Map();
-  for (const g of d.games) { if (!byDate.has(g.date)) byDate.set(g.date, []); byDate.get(g.date).push(g); }
-  if (!byDate.has(today)) byDate.set(today, []);
-  const dates = [...byDate.keys()].sort();
+  for (const g of d?.games || []) { if (!byDate.has(g.date)) byDate.set(g.date, []); byDate.get(g.date).push(g); }
 
-  const cols = dates.map((date) => {
-    const list = byDate.get(date);
+  const weeks = [];
+  for (let w = 0; w < 5; w++) {
+    const days = [];
+    for (let k = 0; k < 7; k++) {
+      const dt = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + w * 7 + k, 12);
+      days.push(dt);
+    }
+    weeks.push(days);
+  }
+  const weekLabel = (days) => {
+    const f = (x) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
+    return `${f(days[0])} – ${f(days[6])}`;
+  };
+
+  const pages = weeks.map((days) => el('div', { class: 'cal-page' }, days.map((dt) => {
+    const date = dt.toLocaleDateString('sv-SE');
+    const list = byDate.get(date) || [];
     const isToday = date === today;
-    const dt = new Date(date + 'T12:00:00');
     const label = isToday ? "Aujourd'hui" : `${dt.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')} ${dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
-    const shown = list.slice(0, 3);
-    return el('div', { class: 'cal-col' + (isToday ? ' today' : '') + (date < today ? ' past' : ''), 'data-date': date },
+    return el('div', { class: 'cal-col' + (isToday ? ' today' : '') + (date < today ? ' past' : '') + (list.length ? '' : ' no-release'), 'data-date': date },
       el('div', { class: 'cal-day' }, el('span', {}, label)),
-      el('div', { class: 'cal-items' },
-        shown.length ? shown.map((g) => calItem(g)) : el('div', { class: 'cal-empty' }, 'Aucune sortie'),
-        list.length > 3 ? el('span', { class: 'cal-more' }, `+ ${list.length - 3} autre${list.length > 4 ? 's' : ''}`) : null));
-  });
+      loading ? el('div', { class: 'cal-items' }, el('div', { class: 'cal-scroll' }, [0, 1].map(() => el('span', { class: 'cal-skel', 'aria-hidden': 'true' }))))
+        : list.length ? dayList(list) : el('div', { class: 'cal-items' }, el('div', { class: 'cal-empty' }, 'Aucune sortie')));
+  })));
 
-  const track = el('div', { class: 'cal-track' }, cols);
-  const scrollBy = (dir) => track.scrollBy({ left: dir * (track.clientWidth * 0.8), behavior: 'smooth' });
-  const prev = el('button', { type: 'button', class: 'cal-arrow prev', 'aria-label': 'Sorties précédentes', onclick: () => scrollBy(-1) },
+  let page = calPage;
+  const track = el('div', { class: 'cal-track' }, pages);
+  const title = el('span', { class: 'cal-week' });
+  const dots = el('div', { class: 'cal-dots', role: 'tablist', 'aria-label': 'Semaines' }, weeks.map((days, i) =>
+    el('button', { type: 'button', class: 'cal-dot', role: 'tab', 'aria-label': `Semaine du ${weekLabel(days)}`, onclick: () => go(i) })));
+  const prev = el('button', { type: 'button', class: 'cal-arrow prev', 'aria-label': 'Semaine précédente', onclick: () => go(page - 1) },
     svg('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'));
-  const next = el('button', { type: 'button', class: 'cal-arrow next', 'aria-label': 'Sorties suivantes', onclick: () => scrollBy(1) },
+  const next = el('button', { type: 'button', class: 'cal-arrow next', 'aria-label': 'Semaine suivante', onclick: () => go(page + 1) },
     svg('<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>'));
-  const updateArrows = () => { prev.disabled = track.scrollLeft < 8; next.disabled = track.scrollLeft + track.clientWidth > track.scrollWidth - 8; };
-  track.addEventListener('scroll', updateArrows, { passive: true });
-  box.replaceChildren(el('div', { class: 'cal' }, prev, track, next));
+  function go(i) {
+    page = Math.max(0, Math.min(weeks.length - 1, i));
+    calPage = page;
+    hideCalTip();
+    track.style.transform = `translateX(${-page * 100}%)`;
+    prev.disabled = page === 0;
+    next.disabled = page === weeks.length - 1;
+    dots.querySelectorAll('.cal-dot').forEach((b, k) => b.setAttribute('aria-selected', String(k === page)));
+    title.textContent = page === 1 ? `Cette semaine · ${weekLabel(weeks[page])}` : page === 0 ? `Semaine dernière · ${weekLabel(weeks[page])}` : page === 2 ? `Semaine prochaine · ${weekLabel(weeks[page])}` : `Semaine du ${weekLabel(weeks[page])}`;
+  }
+  box.replaceChildren(
+    el('div', { class: 'cal' + (loading ? ' loading' : '') + (reveal ? ' reveal' : ''), 'aria-busy': String(loading) },
+      el('div', { class: 'cal-head' }, title), prev, el('div', { class: 'cal-viewport' }, track), next, dots));
+  // pas d'animation de glissement quand on remplace le squelette par les jeux
+  track.style.transition = 'none';
+  go(page);
+  requestAnimationFrame(() => { track.style.transition = ''; });
+}
 
-  // place « Aujourd'hui » vers la gauche, en laissant voir les sorties des derniers jours
-  requestAnimationFrame(() => {
-    const t = track.querySelector('.cal-col.today');
-    if (t) track.scrollLeft = Math.max(0, t.offsetLeft - track.offsetLeft - t.offsetWidth * 2 - 24);
-    updateArrows();
-  });
+// Colonne d'un jour : 3 jeux visibles, le reste défile (molette ou flèches)
+const CHEVRON = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+function dayList(list) {
+  const scroller = el('div', { class: 'cal-scroll', tabindex: list.length > 3 ? '0' : null, 'aria-label': list.length > 3 ? `${list.length} sorties, faire défiler` : null }, list.map((g) => calItem(g)));
+  if (list.length <= 3) return el('div', { class: 'cal-items' }, scroller);
+  const step = (dir) => {
+    const item = scroller.querySelector('.cal-item');
+    const h = item ? item.offsetHeight + 8 : 80;
+    scroller.scrollBy({ top: dir * h, behavior: 'smooth' });
+  };
+  const up = el('button', { type: 'button', class: 'cal-vscroll up', 'aria-label': 'Jeux précédents', onclick: () => step(-1) }, svg(CHEVRON('M6 15l6-6 6 6')));
+  const down = el('button', { type: 'button', class: 'cal-vscroll down', 'aria-label': 'Jeux suivants', onclick: () => step(1) }, svg(CHEVRON('M6 9l6 6 6-6')));
+  const pos = el('span', { class: 'cal-pos' });
+  const update = () => {
+    const item = scroller.querySelector('.cal-item');
+    const h = item ? item.offsetHeight + 8 : 80;
+    const first = Math.round(scroller.scrollTop / h);
+    up.disabled = scroller.scrollTop < 4;
+    down.disabled = scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 4;
+    pos.textContent = `${first + 1}–${Math.min(list.length, first + 3)} sur ${list.length}`;
+  };
+  scroller.addEventListener('scroll', update, { passive: true });
+  requestAnimationFrame(update);
+  return el('div', { class: 'cal-items has-more' }, up, scroller, down, pos);
+}
+
+function calTipContent(g) {
+  return el('span', { class: 'cal-tip-inner' },
+    el('strong', {}, g.name),
+    el('span', { class: 'cal-tip-date' }, `${g.date > new Date().toLocaleDateString('sv-SE') ? 'Sortie prévue' : 'Date de parution'} : ${g.dateText}`),
+    g.description ? el('span', { class: 'cal-tip-desc' }, g.description) : g.description === undefined ? el('span', { class: 'cal-tip-desc muted' }, 'Chargement de la description…') : null,
+    g.genres?.length ? el('span', { class: 'cal-tags' }, g.genres.map((t) => el('span', {}, t))) : null);
 }
 
 function calItem(g) {
-  const tip = el('span', { class: 'cal-tip', role: 'tooltip' },
-    el('strong', {}, g.name),
-    el('span', { class: 'cal-tip-date' }, `${g.comingSoon ? 'Sortie prévue' : 'Date de parution'} : ${g.dateText}`),
-    g.description ? el('span', { class: 'cal-tip-desc' }, g.description) : null,
-    g.genres.length ? el('span', { class: 'cal-tags' }, g.genres.map((t) => el('span', {}, t))) : null);
+  const urls = [...new Set([].concat(g.images || g.image || []).filter(Boolean))];
+  const img = urls.length ? el('img', { alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : null;
+  if (img) {
+    let k = 0;
+    img.addEventListener('error', () => { k++; if (k < urls.length) img.src = urls[k]; else img.remove(); });
+    img.addEventListener('load', () => { if (img.naturalWidth < 60) img.dispatchEvent(new Event('error')); });
+    img.src = urls[0];
+  }
   const a = el('a', { class: 'cal-item', href: g.url, target: '_blank', rel: 'noreferrer', 'aria-label': `${g.name}, ${g.dateText}` },
-    g.image ? el('img', { src: g.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : null,
+    img,
     el('span', { class: 'cal-name' }, g.name),
     g.wishlist ? el('span', { class: 'cal-wish', title: 'Dans ta liste de souhaits' }, svg(HEART)) : null);
-  a._tip = tip;
+  a._game = g;
   return a;
 }
 
 // Bulle d'info au survol : affichée hors du carrousel (qui la couperait), du côté où il y a de la place
 let tipTimer = null;
+const detailsCache = new Map();
 function showCalTip(item) {
   clearTimeout(tipTimer);
-  tipTimer = setTimeout(() => {
+  tipTimer = setTimeout(async () => {
     let box = $('#cal-tip');
     if (!box) { box = el('div', { id: 'cal-tip', class: 'cal-tip' }); document.body.append(box); }
-    box.replaceChildren(...item._tip.cloneNode(true).childNodes);
-    const r = item.getBoundingClientRect(), w = 320;
-    const right = r.right + 12 + w <= window.innerWidth - 8;
-    box.style.left = `${right ? r.right + 12 : Math.max(8, r.left - 12 - w)}px`;
+    box._for = item;
+    const place = () => {
+      const r = item.getBoundingClientRect(), w = 320;
+      const right = r.right + 12 + w <= window.innerWidth - 8;
+      box.style.left = `${right ? r.right + 12 : Math.max(8, r.left - 12 - w)}px`;
+      box.style.top = `${Math.min(Math.max(8, r.top - 6), window.innerHeight - box.offsetHeight - 8)}px`;
+    };
+    const g = item._game;
+    const known = g.description !== undefined ? g : detailsCache.get(g.id);
+    box.replaceChildren(calTipContent(known ? { ...g, description: known.description, genres: known.genres } : g));
     box.classList.add('on');
-    const h = box.offsetHeight;
-    box.style.top = `${Math.min(Math.max(8, r.top - 6), window.innerHeight - h - 8)}px`;
+    place();
+    if (!known && api.releaseDetails) {
+      const d = await api.releaseDetails(g.id).catch(() => null);
+      detailsCache.set(g.id, { description: d?.description || '', genres: d?.genres || [] });
+      if (box.classList.contains('on') && box._for === item) { box.replaceChildren(calTipContent({ ...g, description: d?.description || '', genres: d?.genres || [] })); place(); }
+    }
   }, 220);
+  const b = $('#cal-tip'); if (b) b._for = item;
 }
 function hideCalTip() { clearTimeout(tipTimer); $('#cal-tip')?.classList.remove('on'); }
-document.addEventListener('pointerover', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._tip) showCalTip(it); });
+document.addEventListener('pointerover', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._game) { const b = $('#cal-tip'); if (b) b._for = it; showCalTip(it); } });
 document.addEventListener('pointerout', (e) => { const it = e.target.closest?.('.cal-item'); if (it && !it.contains(e.relatedTarget)) hideCalTip(); });
-document.addEventListener('focusin', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._tip) showCalTip(it); else hideCalTip(); });
+document.addEventListener('focusin', (e) => { const it = e.target.closest?.('.cal-item'); if (it?._game) showCalTip(it); else hideCalTip(); });
 document.addEventListener('scroll', hideCalTip, true);
 
 async function fillHomeNews(box, list) {
@@ -837,7 +915,11 @@ function renderAppUpdate(u) {
   if (u.status === 'available') { b.replaceChildren(svg(UPD_ICON), `Mise à jour ${u.version}`); b.title = `Hangar ${u.version} est disponible : clique pour la télécharger`; }
   else if (u.status === 'downloading') { b.replaceChildren(el('span', { class: 'ring', 'aria-hidden': 'true' }), `Téléchargement ${u.percent || 0} %`); b.title = 'Téléchargement de la mise à jour'; }
   else if (u.status === 'ready') { b.replaceChildren(svg(RESTART_ICON), 'Redémarrer et installer'); b.title = `Hangar ${u.version} est prêt : redémarre pour l'installer`; }
-  if (u.error && u.error !== lastUpdErr && u.manual) toast(`Mise à jour impossible : ${u.error}`);
+  if (u.failed && u.error && u.error !== lastUpdErr) {
+    toast(/sha512|checksum/i.test(u.error)
+      ? 'La mise à jour téléchargée est invalide (fichiers de la release incohérents). Réessaie plus tard.'
+      : `La mise à jour n'a pas pu être téléchargée : ${u.error}`);
+  }
   lastUpdErr = u.error;
 }
 if (api.appUpdate) {
@@ -873,6 +955,15 @@ if (api.onGameEnded) api.onGameEnded((key) => {
   load(true).then(pollUpdates);
   const g = state.games.find((x) => x.key === key);
   if (g) toast(`Bon retour ! Fin de la partie sur ${g.title}.`);
+});
+
+// Un jeu installé, désinstallé ou ajouté au compte : la bibliothèque se met à jour toute seule
+if (api.onLibraryChanged) api.onLibraryChanged(async () => {
+  const before = new Set(state.games.filter((g) => g.installed).map((g) => g.key));
+  await load(false);
+  const added = state.games.filter((g) => g.installed && !before.has(g.key));
+  if (added.length === 1) toast(`${added[0].title} est maintenant dans ta bibliothèque.`);
+  else if (added.length > 1) toast(`${added.length} nouveaux jeux dans ta bibliothèque.`);
 });
 
 load().then(pollUpdates);

@@ -440,32 +440,45 @@ body { -webkit-font-smoothing: antialiased; }
 .layout.home-mode .home-view { max-width: 1600px; margin: 0 auto; width: 100%; }
 
 /* ========================== Calendrier des sorties ========================== */
-.cal { position: relative; }
-.cal-track { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, calc((100% - 4 * 14px) / 5)); gap: 14px;
-  overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 2px; }
-.cal-track::-webkit-scrollbar { display: none; }
-.cal-col { scroll-snap-align: start; display: flex; flex-direction: column; border-radius: 16px; border: 1px solid var(--edge);
-  background: var(--glass); backdrop-filter: blur(22px) saturate(1.3); overflow: visible; }
-.cal-col.past { opacity: .82; }
-.cal-col.today { border-color: var(--tint); background: linear-gradient(180deg, var(--tint-soft), var(--glass) 70%); box-shadow: 0 0 40px -14px var(--tint-soft); }
-.cal-day { padding: 12px 14px 10px; text-align: center; font-size: 12.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-2);
-  border-bottom: 1px solid var(--edge); }
+.cal { position: relative; display: flex; flex-direction: column; gap: 12px; }
+.cal-head { display: flex; justify-content: center; }
+.cal-week { font-size: 13px; font-weight: 600; letter-spacing: .06em; color: var(--text-2); text-transform: uppercase; }
+.cal-viewport { overflow: hidden; border-radius: 16px; padding: 2px; margin: -2px; }
+.cal-track { display: flex; transition: transform .55s var(--ease); }
+.cal-page { flex: 0 0 100%; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; padding: 0 1px; align-items: stretch; }
+.cal-col { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid var(--edge); background: var(--glass); backdrop-filter: blur(22px) saturate(1.3); min-width: 0; }
+.cal-col.past { opacity: .8; }
+.cal-col.today { border-color: var(--tint); background: linear-gradient(180deg, var(--tint-soft), var(--glass) 70%); box-shadow: 0 0 40px -14px var(--tint-soft); opacity: 1; }
+.cal-day { padding: 11px 8px 9px; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2);
+  border-bottom: 1px solid var(--edge); white-space: nowrap; }
 .cal-col.today .cal-day { color: var(--text); }
 .cal-col.today .cal-day span { border-bottom: 2px solid var(--tint); padding-bottom: 3px; }
-.cal-items { display: flex; flex-direction: column; gap: 10px; padding: 12px; flex: 1; }
-.cal-empty { flex: 1; min-height: 110px; display: grid; place-items: center; border: 1px dashed rgba(255,255,255,.1); border-radius: 10px; color: #8A91A0; font-size: 12.5px; }
-.cal-more { font-size: 12.5px; color: var(--muted); text-align: center; }
+.cal-items { display: flex; flex-direction: column; gap: 8px; padding: 10px; flex: 1; min-height: 210px; }
+.cal-empty { flex: 1; display: grid; place-items: center; text-align: center; border: 1px dashed rgba(255,255,255,.09); border-radius: 10px; color: #8A91A0; font-size: 12px; padding: 8px; }
+.cal-more { border: 0; background: rgba(255,255,255,.06); color: var(--text-2); font-size: 12px; font-weight: 600; border-radius: 8px; padding: 6px; }
+.cal-more:hover { background: rgba(255,255,255,.12); color: var(--text); }
 
-.cal-item { position: relative; display: block; aspect-ratio: 460 / 215; border-radius: 10px; background: #14161C; color: inherit; text-decoration: none;
-  box-shadow: 0 10px 22px -12px rgba(0,0,0,.85), 0 0 0 1px var(--edge); transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
-.cal-item > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
-.cal-item:hover, .cal-item:focus-visible { transform: translateY(-3px) scale(1.02); z-index: 5; box-shadow: 0 18px 34px -12px rgba(0,0,0,.9), 0 0 0 1px var(--edge-2), 0 0 30px -8px var(--tint-soft); }
-.cal-name { position: absolute; inset: auto 0 0 0; padding: 18px 10px 8px; border-radius: 0 0 10px 10px; font-size: 12.5px; font-weight: 600;
+.cal-item { position: relative; display: block; aspect-ratio: 460 / 215; border-radius: 8px; background: #14161C; color: inherit; text-decoration: none; flex: none;
+  box-shadow: 0 8px 18px -10px rgba(0,0,0,.85), 0 0 0 1px var(--edge); transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
+.cal-item > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+.cal-item:hover, .cal-item:focus-visible { transform: translateY(-2px) scale(1.03); z-index: 5; box-shadow: 0 16px 30px -12px rgba(0,0,0,.9), 0 0 0 1px var(--edge-2), 0 0 26px -8px var(--tint-soft); }
+.cal-name { position: absolute; inset: auto 0 0 0; padding: 14px 8px 6px; border-radius: 0 0 8px 8px; font-size: 11.5px; font-weight: 600;
   background: linear-gradient(0deg, rgba(0,0,0,.85), transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-item > img ~ .cal-name { opacity: 0; transition: opacity .2s; }
 .cal-item:hover > img ~ .cal-name { opacity: 1; }
-.cal-wish { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: #FF7A9A;
-  background: rgba(10,11,15,.75); }
+.cal-wish { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #FF7A9A; background: rgba(10,11,15,.75); }
+
+.cal-arrow { position: absolute; top: calc(50% + 4px); transform: translateY(-50%); z-index: 6; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--edge-2); background: rgba(14,16,21,.88); color: var(--text); backdrop-filter: blur(16px); box-shadow: 0 10px 24px -8px rgba(0,0,0,.8); transition: opacity .2s, background .2s; }
+.cal-arrow:hover { background: rgba(34,37,47,.95); }
+.cal-arrow:disabled { opacity: 0; pointer-events: none; }
+.cal-arrow.prev { left: -20px; }
+.cal-arrow.next { right: -20px; }
+.cal-dots { display: flex; justify-content: center; gap: 6px; }
+.cal-dot { width: 22px; height: 6px; border-radius: 3px; border: 0; padding: 0; background: rgba(255,255,255,.18); transition: background .2s, width .25s var(--ease); }
+.cal-dot:hover { background: rgba(255,255,255,.35); }
+.cal-dot[aria-selected="true"] { width: 34px; background: var(--tint); }
+@media (max-width: 1100px) { .cal-page { grid-template-columns: repeat(7, minmax(120px, 1fr)); } .cal-viewport { overflow-x: auto; } }
 
 /* Bulle d'info au survol (élément fixe ajouté au body) */
 .cal-tip { position: fixed; top: 0; left: 0; width: 320px; z-index: 40; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
@@ -485,3 +498,46 @@ body { -webkit-font-smoothing: antialiased; }
 .cal-arrow.prev { left: -18px; }
 .cal-arrow.next { right: -18px; }
 .block-head .section-sub { margin: 6px 0 0; }
+
+/* Défilement des jeux d'un même jour : 3 visibles, le reste à la molette ou aux flèches */
+.cal-col { container-type: inline-size; }
+.cal-items { position: relative; }
+.cal-scroll { --item-h: calc((100cqi - 20px) * 215 / 460); display: flex; flex-direction: column; gap: 8px;
+  max-height: calc(3 * var(--item-h) + 16px); overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory;
+  scrollbar-width: none; margin: -4px -4px; padding: 4px; scroll-padding: 4px; }
+.cal-scroll::-webkit-scrollbar { display: none; }
+.cal-scroll .cal-item { scroll-snap-align: start; }
+.cal-items.has-more { padding-bottom: 6px; }
+.cal-items.has-more .cal-scroll { -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 10px), transparent); }
+.cal-vscroll { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 30px; height: 22px; border-radius: 11px; padding: 0;
+  display: grid; place-items: center; border: 1px solid var(--edge-2); background: rgba(14,16,21,.9); color: var(--text);
+  box-shadow: 0 6px 14px -6px rgba(0,0,0,.8); opacity: 0; transition: opacity .2s, background .2s; }
+.cal-vscroll.up { top: 2px; }
+.cal-vscroll.down { bottom: 24px; }
+.cal-col:hover .cal-vscroll:not(:disabled), .cal-vscroll:focus-visible { opacity: 1; }
+.cal-vscroll:hover { background: rgba(40,44,56,.95); }
+.cal-vscroll:disabled { opacity: 0 !important; pointer-events: none; }
+.cal-pos { display: block; text-align: center; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: auto; padding-top: 4px; }
+
+/* Calendrier : squelette pendant le chargement, puis apparition des jeux */
+.cal-skel { display: block; aspect-ratio: 460 / 215; border-radius: 8px; flex: none;
+  background: linear-gradient(100deg, rgba(255,255,255,.04) 20%, rgba(255,255,255,.10) 40%, rgba(255,255,255,.04) 60%) 0 0 / 300% 100%;
+  animation: skel 1.4s ease-in-out infinite; }
+.cal-skel + .cal-skel { opacity: .6; }
+@keyframes skel { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+.cal.reveal .cal-item, .cal.reveal .cal-empty, .cal.reveal .cal-pos { animation: cal-in .45s var(--ease) both; }
+.cal.reveal .cal-col:nth-child(2) .cal-item { animation-delay: .03s; }
+.cal.reveal .cal-col:nth-child(3) .cal-item { animation-delay: .06s; }
+.cal.reveal .cal-col:nth-child(4) .cal-item { animation-delay: .09s; }
+.cal.reveal .cal-col:nth-child(5) .cal-item { animation-delay: .12s; }
+.cal.reveal .cal-col:nth-child(6) .cal-item { animation-delay: .15s; }
+.cal.reveal .cal-col:nth-child(7) .cal-item { animation-delay: .18s; }
+@keyframes cal-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cal-skel, .cal.reveal .cal-item, .cal.reveal .cal-empty { animation: none; } }
+.cal-tip-inner { display: flex; flex-direction: column; gap: 8px; }
+
+/* Logo « fusée » et nom en italique (Exo 2) */
+.logo { width: 38px; height: 38px; border-radius: 11px; border: 1.5px solid #F5A632; background: linear-gradient(160deg, #1C1E26, #0A0B0F);
+  box-shadow: 0 6px 18px rgba(0,0,0,.35), 0 0 18px -6px rgba(245,166,50,.5); }
+.brand-name { display: flex; flex-direction: column; line-height: .9; font-family: 'Exo 2', Sora, sans-serif; font-style: italic; font-weight: 900; font-size: 21px; letter-spacing: -0.01em; }
+.brand-sub { font-weight: 800; font-size: 10.5px; letter-spacing: .08em; color: #F5A632; }
