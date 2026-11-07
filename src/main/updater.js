@@ -5,7 +5,16 @@ const { app, ipcMain } = require('electron');
 
 let autoUpdater = null;
 let send = () => {};
-let state = { status: 'idle', version: null, percent: 0, error: null };
+let state = { status: 'idle', version: null, percent: 0, error: null, notes: '', releaseName: '' };
+
+// Notes de version : texte de la release GitHub (HTML), éventuellement une liste par version
+function notesOf(info) {
+  const n = info?.releaseNotes;
+  if (!n) return '';
+  if (typeof n === 'string') return n;
+  if (Array.isArray(n)) return n.map((x) => x.note || '').filter(Boolean).join('<hr>');
+  return '';
+}
 
 function emit(patch) {
   state = { ...state, ...patch };
@@ -39,7 +48,7 @@ function setup(getWindow, beforeQuit) {
 
   autoUpdater.on('checking-for-update', () => { if (state.status === 'idle' || state.status === 'error') emit({ status: 'checking', error: null }); });
   autoUpdater.on('update-not-available', () => emit({ status: 'idle', version: null }));
-  autoUpdater.on('update-available', (info) => emit({ status: 'available', version: info.version, error: null }));
+  autoUpdater.on('update-available', (info) => emit({ status: 'available', version: info.version, error: null, notes: notesOf(info), releaseName: info.releaseName || '' }));
   autoUpdater.on('download-progress', (p) => emit({ status: 'downloading', percent: Math.round(p.percent || 0) }));
   autoUpdater.on('update-downloaded', (info) => emit({ status: 'ready', version: info.version, percent: 100 }));
   autoUpdater.on('error', (e) => {

@@ -96,6 +96,24 @@
   </form>
 </dialog>
 
+<dialog id="whats-new" class="settings whats-new" aria-labelledby="wn-title">
+  <form method="dialog">
+    <div class="wn-head">
+      <img src="../../build/icon.png" alt="" width="56" height="56" id="wn-icon">
+      <div>
+        <span class="wn-kicker">Mise à jour disponible</span>
+        <h2 id="wn-title">Quoi de neuf dans Hangar</h2>
+      </div>
+    </div>
+    <div class="wn-notes" id="wn-notes"></div>
+    <p class="muted small">La mise à jour se télécharge en arrière-plan. Tes jeux et réglages sont conservés.</p>
+    <div class="dialog-actions">
+      <button type="submit" class="pill" value="later">Plus tard</button>
+      <button type="submit" class="btn btn-play" value="update" autofocus>Mettre à jour</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="settings" class="settings">
   <form method="dialog" id="settings-form">
     <h2>Réglages</h2>

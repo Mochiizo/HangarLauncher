@@ -922,12 +922,48 @@ function renderAppUpdate(u) {
   }
   lastUpdErr = u.error;
 }
+// Nouveautés : le texte de la release GitHub, nettoyé (seules les balises de mise en forme sont gardées)
+const NOTE_TAGS = new Set(['P', 'UL', 'OL', 'LI', 'STRONG', 'B', 'EM', 'I', 'H1', 'H2', 'H3', 'H4', 'BR', 'HR', 'CODE', 'A', 'BLOCKQUOTE']);
+function cleanNotes(html) {
+  const src = new DOMParser().parseFromString(String(html || ''), 'text/html').body;
+  const copy = (node, out) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) { out.append(n.textContent); continue; }
+      if (n.nodeType !== Node.ELEMENT_NODE) continue;
+      if (['SCRIPT', 'STYLE', 'IMG', 'IFRAME', 'VIDEO'].includes(n.tagName)) continue;
+      if (!NOTE_TAGS.has(n.tagName)) { copy(n, out); continue; }
+      const e = document.createElement(n.tagName);
+      if (n.tagName === 'A') {
+        const href = n.getAttribute('href') || '';
+        if (/^https:\/\//.test(href)) { e.href = href; e.target = '_blank'; e.rel = 'noreferrer'; }
+      }
+      copy(n, e);
+      out.append(e);
+    }
+  };
+  const frag = document.createDocumentFragment();
+  copy(src, frag);
+  return frag;
+}
+function showWhatsNew(u) {
+  const d = $('#whats-new');
+  $('#wn-title').textContent = `Quoi de neuf dans Hangar ${u.version}`;
+  const box = $('#wn-notes');
+  const notes = cleanNotes(u.notes);
+  if (notes.textContent.trim()) box.replaceChildren(notes);
+  else box.replaceChildren(el('p', {}, 'Améliorations et corrections pour rendre Hangar plus rapide et plus fiable.'));
+  box.scrollTop = 0;
+  d.returnValue = '';
+  d.showModal();
+  d.addEventListener('close', () => { if (d.returnValue === 'update') api.appUpdate.download(); }, { once: true });
+}
+
 if (api.appUpdate) {
   api.appUpdate.onChange(renderAppUpdate);
   api.appUpdate.state().then((u) => { renderAppUpdate(u); const v = $('#app-version'); if (v) v.textContent = `Version ${u.current}`; });
   $('#app-update').addEventListener('click', async () => {
     const u = await api.appUpdate.state();
-    if (u.status === 'available') api.appUpdate.download();
+    if (u.status === 'available') showWhatsNew(u);
     else if (u.status === 'ready') api.appUpdate.install();
   });
   $('#check-update').addEventListener('click', async () => {
