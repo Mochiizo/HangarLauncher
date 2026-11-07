@@ -109,4 +109,59 @@ function localSteamFile(steamPath, rel) {
   return file.startsWith(root + path.sep) ? file : null;
 }
 
-module.exports = { enrichSteam, localSteamFile };
+// Jeux Ubisoft, EA et Xbox : pas d'images en local. On cherche le même jeu dans la boutique Steam
+// (par son nom) pour reprendre ses visuels. Sans correspondance claire, on n'affiche rien plutôt
+// qu'une mauvaise image. titleCache : { nomNormalisé: { at, appid } } (persistant)
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[®™©]/g, '').replace(/[^a-z0-9]+/g, '');
+const CDN = 'https://cdn.cloudflare.steamstatic.com/steam/apps';
+
+async function findSteamApp(title) {
+  const want = norm(title);
+  if (!want) return 0;
+  try {
+    const url = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(title)}&l=french&cc=FR`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const items = (await res.json())?.items || [];
+    const exact = items.find((it) => norm(it.name) === want);
+    if (exact) return exact.id;
+    // « Assassin's Creed Valhalla » ↔ « Assassin's Creed® Valhalla - Standard Edition »…
+    const close = items.find((it) => { const n = norm(it.name); return n.startsWith(want) || want.startsWith(n); });
+    if (close) return close.id;
+    // « Rainbow Six Siege » ↔ « Tom Clancy's Rainbow Six® Siege » : le nom le plus court qui le contient
+    if (want.length >= 8) {
+      const inside = items.filter((it) => norm(it.name).includes(want)).sort((a, b) => a.name.length - b.name.length)[0];
+      if (inside) return inside.id;
+    }
+    return 0;
+  } catch { return null; } // hors ligne : on réessaiera
+}
+
+async function enrichByTitle(games, titleCache, assetCache) {
+  const list = games.filter((g) => !g.images?.cover?.length && g.title);
+  if (!list.length) return;
+  for (const g of list) {
+    const k = norm(g.title);
+    const hit = titleCache[k];
+    if (hit && Date.now() - hit.at < 30 * 86400000) continue;
+    const id = await findSteamApp(g.title);
+    if (id !== null) titleCache[k] = { at: Date.now(), appid: id };
+  }
+  const ids = [...new Set(list.map((g) => titleCache[norm(g.title)]?.appid).filter(Boolean).map(String))]
+    .filter((id) => !assetCache[id] || Date.now() - assetCache[id].at > WEEK);
+  if (ids.length) {
+    const fetched = await fetchStoreAssets(ids);
+    for (const id of ids) assetCache[id] = { at: Date.now(), ...(fetched[id] || {}) };
+  }
+  for (const g of list) {
+    const id = titleCache[norm(g.title)]?.appid;
+    if (!id) continue;
+    const remote = assetCache[id] || {};
+    const cdn = { cover: `${CDN}/${id}/library_600x900.jpg`, hero: `${CDN}/${id}/library_hero.jpg`, header: `${CDN}/${id}/header.jpg` };
+    g.images = {};
+    for (const kind of ['cover', 'hero', 'header']) g.images[kind] = [...new Set([remote[kind], cdn[kind]].filter(Boolean))];
+    g.artAppId = String(id);
+  }
+}
+
+module.exports = { enrichSteam, enrichByTitle, localSteamFile };

@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const { createStore, dayKey } = require('./store');
 const steam = require('./steam');
 const epic = require('./epic');
+const more = require('./more');
 const demo = require('./demo');
 const { startTracker, runningGames, gameState, pidAlive } = require('./tracker');
 const { steamNews } = require('./news');
@@ -59,24 +60,37 @@ function serveImage(req) {
 //  - pendant la partie, on surveille ses processus chaque seconde (vérification instantanée, sans PowerShell),
 //    avec un contrôle complet toutes les 15 s pour suivre un éventuel changement de processus ;
 //  - quand ils disparaissent, on confirme par un contrôle complet puis la fenêtre revient en ~2 s.
-//    Pendant la première minute, on attend 12 s : un lanceur ou écran de chargement peut passer la main
-//    au vrai jeu (Rocket League…).
-const GONE_EARLY_MS = 12_000, GONE_MS = 1_500, EARLY_PHASE_MS = 60_000;
+//    Pendant les 90 premières secondes, on attend 20 s : un lanceur ou écran de chargement peut passer la main
+//    au vrai jeu (Rocket League…). Une vérification incomplète n'est jamais prise pour une fin de partie.
+const GONE_EARLY_MS = 20_000, GONE_MS = 2_000, EARLY_PHASE_MS = 90_000;
 let session = null;
+
+// Journal des parties (fin de partie détectée, etc.) pour comprendre un retour trop tôt : %APPDATA%\Hangar\parties.log
+function sessionLog(msg) {
+  try {
+    const file = path.join(app.getPath('userData'), 'parties.log');
+    if (fs.existsSync(file) && fs.statSync(file).size > 512 * 1024) fs.renameSync(file, file + '.old');
+    fs.appendFileSync(file, `${new Date().toISOString()} ${msg}\n`);
+  } catch { /* ignore */ }
+}
+
 function watchGameSession(key) {
   if (session) clearInterval(session.timer);
   if (store.settings().hideWhilePlaying === false) return;
-  session = { key, started: Date.now(), running: false, runningSince: 0, pids: [], lastScan: 0, goneSince: 0, hidden: false, busy: false, timer: null };
+  session = { key, started: Date.now(), running: false, runningSince: 0, pids: [], lastScan: 0, goneSince: 0, goneScans: 0, hidden: false, busy: false, timer: null };
   const s = session;
-  const finish = () => {
+  const g0 = cache.games.find((x) => x.key === key);
+  sessionLog(`[${key}] Jouer : ${g0?.title || '?'} · dossier=${g0?.installDir || '-'} · exe=${(g0?.exes || []).join(',') || '-'}`);
+  const finish = (why) => {
     clearInterval(s.timer);
     if (session === s) session = null;
+    sessionLog(`[${key}] fin de surveillance : ${why}`);
   };
   const scan = async () => {
     s.lastScan = Date.now();
     const g = cache.games.find((x) => x.key === key);
-    if (!g) return { running: false, pids: [] };
-    return gameState(g, cache.games).catch(() => ({ running: false, pids: [] }));
+    if (!g) return { running: false, pids: [], sure: false, procs: [] };
+    return gameState(g, cache.games).catch((e) => ({ running: false, pids: [], sure: false, procs: [], err: String(e?.message || e) }));
   };
   s.timer = setInterval(async () => {
     if (s.busy || session !== s) return;
@@ -89,24 +103,33 @@ function watchGameSession(key) {
         const st = await scan();
         if (st.running) {
           s.running = true; s.runningSince = Date.now(); s.pids = st.pids;
+          sessionLog(`[${key}] jeu détecté après ${Math.round((Date.now() - s.started) / 1000)} s · processus=${st.procs.join(',') || 'registre Steam'}`);
           if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()) {
             if (tray) win.hide(); else win.minimize();
             s.hidden = true;
           }
-        } else if (now - s.started > 120_000) finish(); // jamais démarré (connexion, mise à jour…)
+        } else if (now - s.started > 180_000) finish('jeu jamais détecté en 3 min');
         return;
       }
-      // en partie : les processus connus tournent encore ?
+      // en partie : un processus connu tourne encore → le jeu tourne, point
       const alive = s.pids.some(pidAlive);
-      if (alive && !s.goneSince && now - s.lastScan < 15_000) return;
-      // processus inconnus (jeu repéré seulement via Steam) : contrôle complet toutes les 3 s, pas plus
-      if (!s.pids.length && !s.goneSince && now - s.lastScan < 2900) return;
+      if (alive) {
+        if (s.goneSince) { sessionLog(`[${key}] fausse alerte : le jeu tourne toujours`); s.goneSince = 0; s.goneScans = 0; }
+        if (now - s.lastScan < 15_000) return;
+      } else if (!s.pids.length && !s.goneSince && now - s.lastScan < 2900) return; // jeu repéré seulement via Steam
       const st = await scan();
-      if (st.running) { s.goneSince = 0; s.pids = st.pids; return; }
-      if (!s.goneSince) s.goneSince = Date.now();
+      if (st.running) {
+        if (s.goneSince) sessionLog(`[${key}] le jeu est revenu (${st.procs.join(',') || 'registre Steam'}) après ${Math.round((Date.now() - s.goneSince) / 1000)} s`);
+        s.goneSince = 0; s.goneScans = 0; s.pids = st.pids;
+        return;
+      }
+      // liste des processus incomplète (PowerShell trop lent ou en échec) : ce n'est pas une preuve que le jeu est fermé
+      if (!st.sure) { sessionLog(`[${key}] vérification incomplète, ignorée${st.err ? ` (${st.err})` : ''}`); return; }
+      if (!s.goneSince) { s.goneSince = Date.now(); sessionLog(`[${key}] plus aucun processus du jeu après ${Math.round((Date.now() - s.runningSince) / 1000)} s de jeu`); }
+      s.goneScans++;
       const wait = Date.now() - s.runningSince < EARLY_PHASE_MS ? GONE_EARLY_MS : GONE_MS;
-      if (Date.now() - s.goneSince < wait) return;
-      finish();
+      if (Date.now() - s.goneSince < wait || s.goneScans < 2) return;
+      finish(`jeu fermé (confirmé en ${Math.round((Date.now() - s.goneSince) / 1000)} s)`);
       if (s.hidden && win && !win.isDestroyed()) {
         if (win.isMinimized()) win.restore();
         win.show();
@@ -136,6 +159,8 @@ function launchGame(key, action) {
     // Epic : pas de commande de désinstallation, on ouvre la bibliothèque du launcher.
     if (g.source === 'steam' && /^\d+$/.test(g.id)) { shell.openExternal(`steam://uninstall/${g.id}`); return 'steam'; }
     if (g.source === 'epic') { shell.openExternal('com.epicgames.launcher://library'); return 'epic'; }
+    // Ubisoft, EA, Xbox : désinstallation depuis les paramètres Windows (Applications installées)
+    if (['ubisoft', 'ea', 'xbox'].includes(g.source)) { shell.openExternal('ms-settings:appsfeatures'); return 'windows'; }
     return false;
   }
   if (action === 'update' && g.source === 'steam') {
@@ -144,6 +169,7 @@ function launchGame(key, action) {
     shell.openExternal('steam://open/downloads');
     return true;
   }
+  if (action === 'play' && (g.launchExe || g.appUserModelId)) return more.launch(g);
   const url = action === 'install' ? g.installUrl : g.launchUrl;
   if (typeof url !== 'string' || !LAUNCH_RE.test(url)) return false;
   shell.openExternal(url);
@@ -169,9 +195,26 @@ function librarySignature() {
 
 // Vérifie toutes les 15 s si un jeu a été installé, désinstallé ou ajouté, et prévient l'interface
 function watchLibrary() {
-  let last = null, busy = false;
+  let last = null, busy = false, tick = 0;
   setInterval(async () => {
     if (busy) return;
+    // Ubisoft, EA, Xbox : lecture plus lourde (PowerShell), toutes les 3 min et jamais pendant une partie
+    if (++tick % 12 === 0 && !session) {
+      busy = true;
+      try {
+        const o = await more.library();
+        const now = o.games.map((g) => g.key).sort().join(',');
+        const before = cache.games.filter((g) => ['ubisoft', 'ea', 'xbox'].includes(g.source)).map((g) => g.key).sort().join(',');
+        // un jeu Ubisoft/EA déjà fourni par Steam/Epic n'est pas dans cache : on compare seulement les nouveaux venus
+        const added = o.games.some((g) => !cache.games.some((c) => c.key === g.key || (c.installDir && g.installDir && c.installDir.toLowerCase() === g.installDir.toLowerCase())));
+        const removed = before && before.split(',').some((k) => !now.split(',').includes(k));
+        if (added || removed) {
+          await loadLibrary(true);
+          if (win && !win.isDestroyed()) win.webContents.send('library-changed');
+        }
+      } catch { /* ignore */ } finally { busy = false; }
+      return;
+    }
     const sig = librarySignature();
     if (last === null) { last = sig; return; }
     if (sig === last) return;
@@ -186,16 +229,27 @@ function watchLibrary() {
 async function loadLibrary(force = false) {
   if (!force && cache.at && Date.now() - cache.at < REFRESH_MS) return cache;
   const settings = store.settings();
-  const [s, e] = await Promise.all([steam.library(settings, store.db.nameCache), Promise.resolve(epic.library(settings))]);
-  // Epic : temps de jeu issu du suivi des processus
-  for (const g of e.games) Object.assign(g, store.epicStats(g.key));
+  const [s, e, o] = await Promise.all([
+    steam.library(settings, store.db.nameCache),
+    Promise.resolve(epic.library(settings)),
+    more.library().catch(() => ({ games: [], status: {} }))
+  ]);
+  // Diagnostic Ubisoft / EA / Xbox : %APPDATA%\Hangar\plateformes.json
+  try { fs.writeFileSync(path.join(app.getPath('userData'), 'plateformes.json'), JSON.stringify(more.diagnostic(), null, 2)); } catch { /* ignore */ }
+  // Ubisoft, EA, Xbox : un jeu déjà présent via Steam ou Epic (même dossier) n'est pas ajouté une deuxième fois
+  const dirKey = (d) => String(d || '').toLowerCase().replace(/[\\/]+$/, '');
+  const knownDirs = new Set([...s.games, ...e.games].filter((g) => g.installDir).map((g) => dirKey(g.installDir)));
+  const others = o.games.filter((g) => !g.installDir || !knownDirs.has(dirKey(g.installDir)));
+  // Epic, Ubisoft, EA, Xbox : temps de jeu issu du suivi des processus
+  for (const g of [...e.games, ...others]) Object.assign(g, store.epicStats(g.key));
 
-  let games = [...s.games, ...e.games];
+  let games = [...s.games, ...e.games, ...others];
   const isDemo = games.length === 0;
   if (isDemo) games = demo.games();
   else {
     store.recordSnapshot(games);
     await artwork.enrichSteam(games, s.status.path, store.db.assetCache).catch(() => {});
+    await artwork.enrichByTitle(others, store.db.titleCache, store.db.assetCache).catch(() => {});
   }
   // Images choisies par l'utilisateur : prioritaires partout
   for (const g of games) {
@@ -208,7 +262,7 @@ async function loadLibrary(force = false) {
   }
   store.save();
 
-  cache = { games, at: Date.now(), status: { demo: isDemo, steam: s.status, epic: e.status } };
+  cache = { games, at: Date.now(), status: { demo: isDemo, steam: s.status, epic: e.status, more: o.status } };
   return cache;
 }
 
@@ -259,7 +313,7 @@ function createTray() {
   } catch { tray = null; }
 }
 
-const LAUNCH_RE = /^(steam:\/\/(rungameid|install)\/\d+|com\.epicgames\.launcher:\/\/apps\/[^\s]+)$/;
+const LAUNCH_RE = /^(steam:\/\/(rungameid|install)\/\d+|com\.epicgames\.launcher:\/\/apps\/[^\s]+|uplay:\/\/launch\/\d+\/\d+)$/;
 
 function registerIpc() {
   ipcMain.handle('library:get', async (_e, force) => {

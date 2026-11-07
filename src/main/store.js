@@ -13,6 +13,7 @@ const empty = () => ({
   favorites: {},
   nameCache: {},
   assetCache: {},   // { appid: { at, cover, hero, header } } images boutique Steam
+  titleCache: {},   // { nomNormalisé: { at, appid } } jeux Ubisoft/EA/Xbox retrouvés sur Steam (images)
   releaseCache: {},  // { appid: { at, data } } fiches boutique du calendrier des sorties
   customCovers: {}  // { gameKey: "fichier.jpg" } images choisies par l'utilisateur
 });

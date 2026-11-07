@@ -43,7 +43,10 @@ function el(tag, attrs = {}, ...kids) {
 const svg = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
 const SOURCES = {
   steam: { name: 'Steam', long: 'Steam', chip: 'STEAM' },
-  epic: { name: 'Epic', long: 'Epic Games', chip: 'EPIC' }
+  epic: { name: 'Epic', long: 'Epic Games', chip: 'EPIC' },
+  ubisoft: { name: 'Ubisoft', long: 'Ubisoft Connect', chip: 'UBI', via: 'Ubisoft Connect' },
+  ea: { name: 'EA', long: 'EA app', chip: 'EA', via: "l'EA app" },
+  xbox: { name: 'Xbox', long: 'Xbox', chip: 'XBOX', via: "l'appli Xbox" }
 };
 const ICONS = {
   update: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/></svg>',
@@ -115,9 +118,10 @@ function renderSidebar(list) {
   // La colonne de gauche reste toujours triée par ordre alphabétique (le tri choisi ne s'applique qu'à la grille)
   list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base', numeric: true }));
   pills($('#filters'), [['all', 'Tous'], ['installed', 'Installés'], ['fav', 'Favoris']], state.filter, (v) => { state.filter = v; render(); });
-  const present = Object.entries(SOURCES).filter(([id]) => state.games.some((g) => g.source === id));
+  // Toutes les plateformes sont toujours proposées, même sans jeu (le filtre explique alors pourquoi c'est vide)
+  const present = Object.entries(SOURCES);
   const srcBox = $('#sources');
-  srcBox.hidden = present.length < 2;
+  srcBox.hidden = !!state.status.demo;
   if (!srcBox.hidden) pills(srcBox, [['all', 'Toutes plateformes'], ...present.map(([id, s]) => [id, s.name])], state.source, (v) => { state.source = v; render(); });
 
   const names = { all: 'Tous les jeux', installed: 'Jeux installés', fav: 'Favoris' };
@@ -129,7 +133,7 @@ function renderSidebar(list) {
       el('span', { class: 'thumb' }, art(g, ['header', 'cover'])),
       el('span', { class: 'name-wrap' }, el('span', { class: 'name' }, g.title), statusLine(g)),
       g.favorite ? svg(ICONS.star(true).replace('width="18" height="18"', 'width="13" height="13"').replace('currentColor', 'var(--accent)')) : null,
-      el('span', { class: 'src' }, SOURCES[g.source]?.chip || 'JEU')))) : [el('li', { class: 'empty' }, 'Aucun jeu ne correspond.')]));
+      el('span', { class: 'src' }, SOURCES[g.source]?.chip || 'JEU')))) : [el('li', { class: 'empty' }, emptyText())]));
 }
 
 // ---------- Mises à jour ----------
@@ -197,7 +201,7 @@ async function pollUpdates() {
     // Un jeu détecté comme lancé n'est plus « en cours de lancement » ; abandon après 60 s
     for (const [k, t] of Object.entries(state.launching)) {
       if (runSet.has(k)) delete state.launching[k];
-      else if (Date.now() - t > 60000) { delete state.launching[k]; toast("Le jeu ne semble pas avoir démarré. Vérifie la fenêtre de Steam ou d'Epic."); }
+      else if (Date.now() - t > 60000) { delete state.launching[k]; toast('Le jeu ne semble pas avoir démarré. Vérifie la fenêtre de son launcher.'); }
     }
     const runChanged = [...runSet].sort().join() !== [...state.running].sort().join();
     state.running = runSet;
@@ -241,7 +245,7 @@ function actionButton(g) {
     : state.launching[g.key]
     ? el('button', { type: 'button', class: 'btn btn-play btn-launching', 'aria-disabled': 'true' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Lancement…')
     : g.installed
-    ? el('button', { type: 'button', class: 'btn btn-play', 'aria-disabled': String(!g.launchUrl), onclick: () => play(g) }, svg(ICONS.play), 'Jouer')
+    ? el('button', { type: 'button', class: 'btn btn-play', 'aria-disabled': String(!(g.launchUrl || g.canPlay)), onclick: () => play(g) }, svg(ICONS.play), 'Jouer')
     : el('button', { type: 'button', class: 'btn btn-install', 'aria-disabled': String(!g.installUrl), onclick: () => api.launch(g.key, 'install') }, svg(ICONS.install), g.installUrl ? 'Installer' : `Installer depuis ${SOURCES[g.source]?.name || 'le launcher'}`);
 }
 
@@ -367,8 +371,20 @@ function renderWeek(sel) {
   if (!note.hidden) note.textContent = "Les durées par jour se remplissent à partir du moment où l'appli tourne : elle compare chaque jour ton temps de jeu total avec celui de la veille. En attendant, chaque jeu apparaît le jour de sa dernière session. Laisse l'appli ouverte en arrière-plan (ou lancée au démarrage) pour un suivi complet.";
 }
 
+// Message quand la liste est vide : une plateforme sans jeu sur ce PC, ou une recherche sans résultat
+function emptyText() {
+  const src = SOURCES[state.source];
+  if (src && !state.games.some((g) => g.source === state.source)) {
+    return state.source === 'steam' || state.source === 'epic'
+      ? `Aucun jeu ${src.name} trouvé sur ce PC. Vérifie le dossier dans les Réglages.`
+      : `Aucun jeu ${src.name} installé sur ce PC pour l'instant. Installe un jeu avec ${src.via} : il apparaîtra ici tout seul.`;
+  }
+  return 'Aucun jeu ne correspond.';
+}
+
 function renderGrid(list, sel) {
   pills($('#sorts'), [['recent', 'Récents'], ['alpha', 'A → Z'], ['hours', 'Temps de jeu']], state.sort, (v) => { state.sort = v; render(); });
+  if (!list.length) { $('#grid').replaceChildren(el('p', { class: 'empty grid-empty' }, emptyText())); return; }
   $('#grid').replaceChildren(...list.map((g) =>
     el('button', { type: 'button', class: 'card' + (g.installed ? '' : ' not-installed') + (g.key === sel?.key ? ' selected' : ''), onclick: () => { select(g.key); ($('.content').scrollHeight > $('.content').clientHeight ? $('.content') : window).scrollTo({ top: 0, behavior: 'smooth' }); } },
       art(g),
@@ -378,7 +394,7 @@ function renderGrid(list, sel) {
 function renderBanner() {
   const s = state.status, b = $('#banner');
   let msg = null;
-  if (s.demo) msg = 'Aucun jeu Steam ou Epic trouvé sur cet ordinateur : voici des jeux de démonstration. Vérifie les dossiers dans les Réglages.';
+  if (s.demo) msg = 'Aucun jeu trouvé sur cet ordinateur (Steam, Epic, Ubisoft, EA, Xbox) : voici des jeux de démonstration. Vérifie les dossiers dans les Réglages.';
   else if (s.steam?.api === 'error') msg = `Steam : ${s.steam.error}. Les jeux installés restent affichés.`;
   b.hidden = !msg;
   b.textContent = msg || '';
@@ -490,13 +506,17 @@ function askUninstall(g) {
   $('#cu-title').textContent = `Désinstaller ${g.title} ?`;
   $('#cu-text').textContent = g.source === 'steam'
     ? `Steam va s'ouvrir pour confirmer la désinstallation${g.sizeBytes ? ` et libérer ${size(g.sizeBytes)}` : ''}. Ton temps de jeu, tes succès et tes sauvegardes Steam Cloud sont conservés, et tu pourras réinstaller le jeu quand tu veux.`
-    : `Epic Games ne permet pas à une autre application de désinstaller un jeu. Le launcher Epic va s'ouvrir sur ta bibliothèque : clique sur « … » sous ${g.title}, puis sur « Désinstaller ».`;
+    : g.source === 'epic'
+      ? `Epic Games ne permet pas à une autre application de désinstaller un jeu. Le launcher Epic va s'ouvrir sur ta bibliothèque : clique sur « … » sous ${g.title}, puis sur « Désinstaller ».`
+      : `${SOURCES[g.source]?.long || 'Ce launcher'} ne permet pas à une autre application de désinstaller un jeu. Les paramètres Windows vont s'ouvrir sur « Applications installées » : cherche ${g.title}, clique sur « … » puis sur « Désinstaller ».`;
   d.returnValue = '';
   d.onclose = async () => {
     if (d.returnValue !== 'ok') return;
     const r = await api.launch(g.key, 'uninstall');
     if (!r) return toast('Impossible de lancer la désinstallation de ce jeu.');
-    toast(r === 'steam' ? `Confirme la désinstallation dans la fenêtre de Steam. Hangar se mettra à jour tout seul.` : `Le launcher Epic s'ouvre : désinstalle ${g.title} depuis sa bibliothèque.`);
+    toast(r === 'steam' ? `Confirme la désinstallation dans la fenêtre de Steam. Hangar se mettra à jour tout seul.`
+      : r === 'windows' ? `Les paramètres Windows s'ouvrent : désinstalle ${g.title} depuis « Applications installées ».`
+      : `Le launcher Epic s'ouvre : désinstalle ${g.title} depuis sa bibliothèque.`);
     watchUninstall(g.key);
   };
   d.showModal();
@@ -580,7 +600,7 @@ function renderHome() {
 
   // En-tête
   const sub = w.total ? `${duration(w.total)} de jeu ces 7 derniers jours, sur ${w.daysPlayed} jour${w.daysPlayed > 1 ? 's' : ''}.`
-    : recent[0] ? `Ta dernière session : ${recent[0].title}, ${relative(recent[0].lastPlayed).toLowerCase()}.` : 'Ta bibliothèque Steam et Epic, réunie ici.';
+    : recent[0] ? `Ta dernière session : ${recent[0].title}, ${relative(recent[0].lastPlayed).toLowerCase()}.` : 'Toute ta bibliothèque, réunie ici.';
   nodes.push(el('header', { class: 'home-head' },
     el('h1', {}, greeting()),
     el('p', { class: 'muted' }, sub)));
@@ -884,6 +904,9 @@ async function openSettings() {
   $('#steam-detected').className = 'small ' + (st.found ? 'ok' : 'warn');
   $('#steam-detected').textContent = st.found ? `Steam détecté${st.user ? ` · compte ${st.user.name}` : ''}` : 'Steam introuvable à cet emplacement.';
   $('#epic-detected').className = 'small ' + (ep.found ? 'ok' : 'warn');
+  const mo = state.status.more || {};
+  const moreTxt = [['ubisoft', 'Ubisoft Connect'], ['ea', 'EA app'], ['xbox', 'Xbox']].map(([k, n]) => `${n} : ${mo[k] || 0} jeu${(mo[k] || 0) > 1 ? 'x' : ''}`).join(' · ');
+  if ($('#more-detected')) $('#more-detected').textContent = `Détectés automatiquement · ${moreTxt}`;
   $('#epic-detected').textContent = ep.found ? `Launcher Epic détecté · ${ep.count} jeu${ep.count > 1 ? 'x' : ''} installé${ep.count > 1 ? 's' : ''}` : 'Launcher Epic introuvable à cet emplacement.';
   $('#settings').showModal();
 }

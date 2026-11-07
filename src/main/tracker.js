@@ -5,6 +5,7 @@
 // Repli : le nom de l'exécutable indiqué par le launcher, et pour Steam le registre (RunningAppID).
 'use strict';
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const WIN = process.platform === 'win32';
@@ -17,11 +18,12 @@ function listProcesses() {
   if (procCache.pending) return procCache.pending;
   procCache.pending = new Promise((resolve) => {
     // entries : [{ name, path, pid }] pour retrouver les processus d'un jeu
-    const done = (names, paths, entries = []) => { procCache = { at: Date.now(), data: { names, paths, entries }, pending: null }; resolve(procCache.data); };
+    // ok = liste complète (avec chemins) ; false = liste partielle (repli), à ne pas prendre pour une preuve d'arrêt
+    const done = (names, paths, entries = [], ok = true) => { procCache = { at: Date.now(), data: { names, paths, entries, ok }, pending: null }; resolve(procCache.data); };
     if (WIN) {
       // chemins complets via PowerShell (CIM) ; repli sur tasklist (noms seuls) si PowerShell échoue
       const ps = 'Get-CimInstance Win32_Process | ForEach-Object { $_.Name + "|" + $_.ExecutablePath + "|" + $_.ProcessId }';
-      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, maxBuffer: 32 * 1024 * 1024, timeout: 8000 }, (err, out) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, maxBuffer: 32 * 1024 * 1024, timeout: 20000 }, (err, out) => {
         if (!err && out) {
           const names = new Set(), paths = [], entries = [];
           for (const line of out.split(/\r?\n/)) {
@@ -36,7 +38,7 @@ function listProcesses() {
         execFile('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (e2, out2) => {
           const names = new Set();
           if (!e2) for (const line of out2.split(/\r?\n/)) { const n = (line.match(/^"([^"]+)"/) || [])[1]; if (n) names.add(n.toLowerCase()); }
-          done(names, []);
+          done(names, [], [], false);
         });
       });
     } else {
@@ -57,18 +59,49 @@ function listProcesses() {
   return procCache.pending;
 }
 
-function isRunning(g, procs) {
-  if (g.installDir) {
-    const dir = norm(g.installDir) + path.sep;
-    if (procs.paths.some((p) => p.startsWith(dir))) return true;
-  }
-  return !!g.exes?.some((x) => procs.names.has(x));
+// Noms des .exe présents dans le dossier d'installation d'un jeu (mis en cache).
+// Utile pour les jeux protégés par un anti-triche (Rocket League, Fortnite…) : Windows ne donne pas
+// le chemin de leur processus à une appli normale, seulement son nom.
+const dirExes = new Map();
+function exesInDir(dir) {
+  if (!dir) return new Set();
+  const hit = dirExes.get(dir);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.names; // re-scanné toutes les 6 h au plus
+  const names = new Set();
+  let seen = 0;
+  const walk = (d, depth) => {
+    if (depth > 4 || seen > 5000) return;
+    let list = [];
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of list) {
+      if (++seen > 5000) return;
+      if (e.isDirectory()) walk(path.join(d, e.name), depth + 1);
+      else if (/\.exe$/i.test(e.name)) names.add(e.name.toLowerCase());
+    }
+  };
+  walk(dir, 0);
+  dirExes.set(dir, { at: Date.now(), names });
+  return names;
 }
 
-// Identifiants des processus d'un jeu (dossier d'installation ou exécutable connu)
-function gamePids(g, procs) {
+// Processus d'un jeu :
+//  - chemin connu → il doit être dans le dossier d'installation ;
+//  - chemin inconnu (processus protégé) → son nom doit être celui d'un .exe du jeu ;
+//  - liste partielle (repli sans chemins) → nom de l'exécutable indiqué par le launcher.
+function gameEntries(g, procs) {
   const dir = g.installDir ? norm(g.installDir) + path.sep : null;
-  return (procs.entries || []).filter((e) => (dir && e.path.startsWith(dir)) || g.exes?.includes(e.name)).map((e) => e.pid);
+  const own = new Set([...(g.exes || []), ...(g.installDir ? exesInDir(g.installDir) : [])]);
+  return (procs.entries || []).filter((e) => (e.path ? !!dir && e.path.startsWith(dir) : own.has(e.name)));
+}
+
+function isRunning(g, procs) {
+  if (procs.ok === false) return !!g.exes?.some((x) => procs.names.has(x));
+  return gameEntries(g, procs).length > 0;
+}
+
+// Identifiants des processus d'un jeu
+function gamePids(g, procs) {
+  return gameEntries(g, procs).map((e) => e.pid);
 }
 
 // Vérification quasi instantanée qu'un processus existe encore (sans relancer PowerShell)
@@ -112,7 +145,8 @@ function startTracker(getGames, onMinute) {
 async function gameState(g, games) {
   const procs = await listProcesses();
   const running = (await runningGames(games)).includes(g.key);
-  return { running, pids: running ? gamePids(g, procs) : [] };
+  const pids = running ? gamePids(g, procs) : [];
+  return { running, pids, sure: procs.ok !== false, procs: pids.length ? procs.entries.filter((e) => pids.includes(e.pid)).map((e) => e.name) : [] };
 }
 
-module.exports = { startTracker, runningGames, gameState, pidAlive };
+module.exports = { startTracker, runningGames, gameState, pidAlive, isRunning };
