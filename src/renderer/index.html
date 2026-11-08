@@ -47,6 +47,10 @@
       </label>
       <div class="pills" id="filters"></div>
       <div class="pills" id="sources"></div>
+      <button type="button" class="add-game" id="add-game">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Ajouter un jeu
+      </button>
       <div class="list-title" id="list-title"></div>
       <ul class="game-list" id="game-list"></ul>
     </aside>
@@ -84,6 +88,21 @@
 
 <div id="dlbar" class="dlbar" role="status" aria-live="polite" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<dialog id="add-game-dialog" class="settings confirm" aria-labelledby="ag-title">
+  <form method="dialog">
+    <h2 id="ag-title">Ajouter un jeu</h2>
+    <p class="muted small">Pour les jeux installés sans Steam, Epic, Ubisoft, EA ou Xbox (Roblox, Soulframe…). Hangar le lancera comme un double-clic et comptera ton temps de jeu.</p>
+    <label for="ag-name">Nom du jeu</label>
+    <input type="text" id="ag-name" maxlength="120" autocomplete="off" required>
+    <p class="muted small ag-file" id="ag-file"></p>
+    <p class="muted small" id="ag-tip" hidden>Astuce : pour un jeu qui se met à jour tout seul (Roblox…), choisis plutôt son raccourci du Bureau ou du menu Démarrer : il restera valable après les mises à jour.</p>
+    <div class="dialog-actions">
+      <button type="submit" class="pill" value="cancel" formnovalidate>Annuler</button>
+      <button type="submit" class="btn btn-play" value="ok">Ajouter</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="confirm-uninstall" class="settings confirm">
   <form method="dialog">

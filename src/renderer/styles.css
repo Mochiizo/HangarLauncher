@@ -125,6 +125,12 @@ a { color: var(--accent); }
 .empty { color: var(--muted); padding: 12px 8px; }
 .grid-empty { grid-column: 1 / -1; padding: 24px 4px; }
 
+/* Ajout d'un jeu à la main */
+.add-game { display: flex; align-items: center; justify-content: center; gap: 8px; height: 38px; border-radius: 12px; border: 1px dashed var(--line-2); background: transparent; color: var(--text-2); font: 600 13px var(--font, inherit); cursor: pointer; transition: border-color .2s, color .2s, background .2s; }
+.add-game:hover { border-color: var(--accent); color: var(--text); background: rgba(255,255,255,.04); }
+.add-game:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ag-file { word-break: break-all; margin: 0; }
+
 /* Réglages */
 .settings { width: min(560px, calc(100vw - 32px)); border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel); color: var(--text); padding: 0; }
 .settings::backdrop { background: rgba(0,0,0,.6); }

@@ -15,7 +15,8 @@ const empty = () => ({
   assetCache: {},   // { appid: { at, cover, hero, header } } images boutique Steam
   titleCache: {},   // { nomNormalisé: { at, appid } } jeux Ubisoft/EA/Xbox retrouvés sur Steam (images)
   releaseCache: {},  // { appid: { at, data } } fiches boutique du calendrier des sorties
-  customCovers: {}  // { gameKey: "fichier.jpg" } images choisies par l'utilisateur
+  customCovers: {},  // { gameKey: "fichier.jpg" } images choisies par l'utilisateur
+  customGames: []    // [{ key, title, file }] jeux ajoutés à la main (sans launcher)
 });
 
 const dayKey = (d = new Date()) => d.toLocaleDateString('sv-SE'); // AAAA-MM-JJ, heure locale

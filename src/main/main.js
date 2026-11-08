@@ -6,6 +6,7 @@ const { createStore, dayKey } = require('./store');
 const steam = require('./steam');
 const epic = require('./epic');
 const more = require('./more');
+const custom = require('./custom');
 const demo = require('./demo');
 const { startTracker, runningGames, gameState, pidAlive } = require('./tracker');
 const { steamNews } = require('./news');
@@ -169,6 +170,7 @@ function launchGame(key, action) {
     shell.openExternal('steam://open/downloads');
     return true;
   }
+  if (action === 'play' && g.source === 'custom') return custom.launch(g);
   if (action === 'play' && (g.launchExe || g.appUserModelId)) return more.launch(g);
   const url = action === 'install' ? g.installUrl : g.launchUrl;
   if (typeof url !== 'string' || !LAUNCH_RE.test(url)) return false;
@@ -240,6 +242,8 @@ async function loadLibrary(force = false) {
   const dirKey = (d) => String(d || '').toLowerCase().replace(/[\\/]+$/, '');
   const knownDirs = new Set([...s.games, ...e.games].filter((g) => g.installDir).map((g) => dirKey(g.installDir)));
   const others = o.games.filter((g) => !g.installDir || !knownDirs.has(dirKey(g.installDir)));
+  // Jeux ajoutés à la main (Roblox, Soulframe…)
+  others.push(...custom.library(store.db.customGames));
   // Epic, Ubisoft, EA, Xbox : temps de jeu issu du suivi des processus
   for (const g of [...e.games, ...others]) Object.assign(g, store.epicStats(g.key));
 
@@ -366,6 +370,39 @@ function registerIpc() {
     if (old && old !== name) fs.rmSync(path.join(coversDir(), old), { force: true });
     fs.copyFileSync(r.filePaths[0], path.join(coversDir(), name));
     store.db.customCovers[key] = name;
+    store.save();
+    await loadLibrary(true);
+    return true;
+  });
+  // Jeux ajoutés à la main : choix du fichier → nom proposé → ajout / retrait
+  ipcMain.handle('custom:pick', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Choisir le jeu à ajouter', properties: ['openFile'],
+      filters: [{ name: 'Jeux et raccourcis', extensions: ['exe', 'lnk', 'url'] }]
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return custom.suggest(r.filePaths[0]);
+  });
+  ipcMain.handle('custom:add', async (_e, file, title) => {
+    file = String(file || ''); title = String(title || '').trim().slice(0, 120);
+    if (!/\.(exe|lnk|url)$/i.test(file) || !fs.existsSync(file) || !title) return null;
+    const dup = store.db.customGames.find((c) => c.file.toLowerCase() === file.toLowerCase());
+    if (dup) { dup.title = title; store.save(); await loadLibrary(true); return dup.key; }
+    const key = `custom-${Date.now().toString(36)}`;
+    store.db.customGames.push({ key, title, file });
+    store.save();
+    await loadLibrary(true);
+    return key;
+  });
+  ipcMain.handle('custom:remove', async (_e, key) => {
+    key = String(key);
+    const before = store.db.customGames.length;
+    store.db.customGames = store.db.customGames.filter((c) => c.key !== key);
+    if (store.db.customGames.length === before) return false;
+    const cover = store.db.customCovers[key];
+    if (cover) fs.rmSync(path.join(coversDir(), path.basename(cover)), { force: true });
+    delete store.db.customCovers[key];
+    delete store.db.favorites[key];
     store.save();
     await loadLibrary(true);
     return true;

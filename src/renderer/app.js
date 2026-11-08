@@ -46,7 +46,8 @@ const SOURCES = {
   epic: { name: 'Epic', long: 'Epic Games', chip: 'EPIC' },
   ubisoft: { name: 'Ubisoft', long: 'Ubisoft Connect', chip: 'UBI', via: 'Ubisoft Connect' },
   ea: { name: 'EA', long: 'EA app', chip: 'EA', via: "l'EA app" },
-  xbox: { name: 'Xbox', long: 'Xbox', chip: 'XBOX', via: "l'appli Xbox" }
+  xbox: { name: 'Xbox', long: 'Xbox', chip: 'XBOX', via: "l'appli Xbox" },
+  custom: { name: 'Ajoutés', long: 'Jeux ajoutés', chip: 'PC' }
 };
 const ICONS = {
   update: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/></svg>',
@@ -244,6 +245,8 @@ function actionButton(g) {
     ? el('button', { type: 'button', class: 'btn btn-running', 'aria-disabled': 'true' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'Lancé')
     : state.launching[g.key]
     ? el('button', { type: 'button', class: 'btn btn-play btn-launching', 'aria-disabled': 'true' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Lancement…')
+    : g.source === 'custom' && !g.installed
+    ? el('button', { type: 'button', class: 'btn btn-install', onclick: () => addGame(g) }, svg(ICONS.install), 'Fichier introuvable, rechoisir')
     : g.installed
     ? el('button', { type: 'button', class: 'btn btn-play', 'aria-disabled': String(!(g.launchUrl || g.canPlay)), onclick: () => play(g) }, svg(ICONS.play), 'Jouer')
     : el('button', { type: 'button', class: 'btn btn-install', 'aria-disabled': String(!g.installUrl), onclick: () => api.launch(g.key, 'install') }, svg(ICONS.install), g.installUrl ? 'Installer' : `Installer depuis ${SOURCES[g.source]?.name || 'le launcher'}`);
@@ -264,7 +267,11 @@ function renderHero(g) {
     type: 'button', class: 'btn-ghost', 'aria-label': "Revenir à l'image d'origine", title: "Revenir à l'image d'origine",
     onclick: async () => { await api.resetCover(g.key); load(); }
   }, svg(ICONS.undo)) : null;
-  const uninstallBtn = g.installed && !state.running.has(g.key) && !(u?.state === 'updating') ? el('button', {
+  const uninstallBtn = g.source === 'custom' ? (!state.running.has(g.key) ? el('button', {
+    type: 'button', class: 'btn-ghost btn-ghost-danger', 'aria-label': `Retirer ${g.title} de Hangar`, title: 'Retirer de Hangar',
+    onclick: () => askRemove(g)
+  }, svg(ICONS.trash)) : null)
+    : g.installed && !state.running.has(g.key) && !(u?.state === 'updating') ? el('button', {
     type: 'button', class: 'btn-ghost btn-ghost-danger', 'aria-label': `Désinstaller ${g.title}`, title: 'Désinstaller',
     onclick: () => askUninstall(g)
   }, svg(ICONS.trash)) : null;
@@ -374,6 +381,9 @@ function renderWeek(sel) {
 // Message quand la liste est vide : une plateforme sans jeu sur ce PC, ou une recherche sans résultat
 function emptyText() {
   const src = SOURCES[state.source];
+  if (state.source === 'custom' && !state.games.some((g) => g.source === 'custom')) {
+    return "Aucun jeu ajouté pour l'instant. Clique sur « Ajouter un jeu » pour ajouter un jeu installé sans launcher (Roblox, Soulframe…).";
+  }
   if (src && !state.games.some((g) => g.source === state.source)) {
     return state.source === 'steam' || state.source === 'epic'
       ? `Aucun jeu ${src.name} trouvé sur ce PC. Vérifie le dossier dans les Réglages.`
@@ -499,6 +509,50 @@ function render() {
   renderGrid(list, sel);
   renderDownloadBar();
 }
+
+// ---------- Jeux ajoutés à la main ----------
+// replace : jeu ajouté dont le fichier a disparu, remplacé par le nouveau choix (même nom)
+async function addGame(replace = null) {
+  const pick = await api.customPick();
+  if (!pick) return;
+  const d = $('#add-game-dialog');
+  $('#ag-name').value = replace?.title || pick.title || '';
+  $('#ag-file').textContent = pick.file;
+  $('#ag-tip').hidden = !/\\(versions?|version-[^\\]+)\\/i.test(pick.file) || !/\.exe$/i.test(pick.file);
+  d.returnValue = '';
+  d.onclose = async () => {
+    const title = $('#ag-name').value.trim();
+    if (d.returnValue !== 'ok' || !title) return;
+    const key = await api.customAdd(pick.file, title);
+    if (!key) return toast("Impossible d'ajouter ce fichier.");
+    if (replace && replace.key !== key) await api.customRemove(replace.key);
+    await load(false);
+    select(key);
+    toast(`${title} est dans ta bibliothèque. Tu peux lui choisir une image avec le bouton image.`);
+  };
+  d.showModal();
+  $('#ag-name').select();
+}
+
+function askRemove(g) {
+  const d = $('#confirm-uninstall');
+  $('#cu-title').textContent = `Retirer ${g.title} de Hangar ?`;
+  $('#cu-text').textContent = `Le jeu disparaît seulement de Hangar : il reste installé sur ton PC. Tu pourras l'ajouter à nouveau quand tu veux.`;
+  const okBtn = d.querySelector('button[value="ok"]');
+  const label = okBtn.textContent;
+  okBtn.textContent = 'Retirer';
+  d.returnValue = '';
+  d.onclose = async () => {
+    okBtn.textContent = label;
+    if (d.returnValue !== 'ok') return;
+    await api.customRemove(g.key);
+    await load(false);
+    toast(`${g.title} a été retiré de Hangar.`);
+  };
+  d.showModal();
+}
+
+$('#add-game').addEventListener('click', () => addGame());
 
 // ---------- Désinstallation ----------
 function askUninstall(g) {
