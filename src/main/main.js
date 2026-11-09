@@ -320,6 +320,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 920, minWidth: 900, minHeight: 600,
     backgroundColor: '#0F1115', title: PREVIEW ? 'Hangar — Aperçu' : 'Hangar', icon: ICON, autoHideMenuBar: true,
+    // Pas de barre de titre Windows : la barre du haut de Hangar en tient lieu (déplacement, boutons de fenêtre)
+    titleBarStyle: 'hidden',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
@@ -328,6 +330,9 @@ function createWindow() {
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   // Fermer la fenêtre la cache dans la zone de notification : le suivi du temps de jeu continue
   win.on('close', (e) => { if (!quitting && tray) { e.preventDefault(); win.hide(); } });
+  const sendMax = () => { if (!win.isDestroyed()) win.webContents.send('window-state', { maximized: win.isMaximized() }); };
+  win.on('maximize', sendMax);
+  win.on('unmaximize', sendMax);
 }
 
 function createTray() {
@@ -493,6 +498,14 @@ app.whenReady().then(() => {
   createWindow();
   if (!PREVIEW) updater.setup(() => win, () => { quitting = true; });
   ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
+  // Boutons de fenêtre dessinés par Hangar (réduire, agrandir, fermer)
+  ipcMain.handle('window:action', (_e, action) => {
+    if (!win || win.isDestroyed()) return null;
+    if (action === 'minimize') win.minimize();
+    else if (action === 'maximize') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
+    else if (action === 'close') win.close();
+    return { maximized: win.isMaximized() };
+  });
   // Amis Steam (clé API) : statut, jeu en cours ; un clic ouvre la discussion dans Steam
   ipcMain.handle('friends:get', () => {
     const settings = store.settings();

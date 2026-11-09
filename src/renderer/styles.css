@@ -608,3 +608,18 @@ body { -webkit-font-smoothing: antialiased; }
 .friends-empty { padding: 16px 12px; color: var(--text-2); line-height: 1.5; }
 .friends-empty .pill { margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) { .friends-panel { animation: none; } .friends-bubble { transition: none; } }
+
+/* ---------- Barre du haut = barre de titre ---------- */
+/* On peut déplacer la fenêtre en attrapant la barre du haut (double-clic : agrandir) ; ses boutons restent cliquables */
+.topbar { -webkit-app-region: drag; user-select: none; padding-right: 0; }
+.topbar button, .topbar a, .topbar input, .topbar .tabs { -webkit-app-region: no-drag; }
+.win-controls { display: flex; align-self: stretch; margin: -12px 0 -12px 6px; }
+.win-btn { -webkit-app-region: no-drag; width: 46px; display: grid; place-items: center; border: 0; background: transparent; color: var(--text-2); transition: background .15s, color .15s; }
+.win-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.win-btn:active { background: rgba(255,255,255,.12); }
+.win-close:hover { background: #c42b1c; color: #fff; }
+.win-close:active { background: #a52618; }
+.win-btn .ic-restore { display: none; }
+body.maximized .win-btn .ic-max { display: none; }
+body.maximized .win-btn .ic-restore { display: block; }
+.win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

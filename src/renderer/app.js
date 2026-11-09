@@ -1037,6 +1037,14 @@ function showWhatsNew(u) {
 
 $('#open-diag')?.addEventListener('click', () => api.openDiagnostic());
 
+// ---------- Boutons de fenêtre ----------
+document.querySelectorAll('.win-btn').forEach((b) => b.addEventListener('click', async () => {
+  const st = await api.windowAction?.(b.dataset.win);
+  if (st) document.body.classList.toggle('maximized', st.maximized);
+}));
+api.onWindowState?.((st) => document.body.classList.toggle('maximized', st.maximized));
+
+
 // ---------- Amis Steam ----------
 const friendsState = { data: null, open: false };
 const FRIEND_LABEL = { online: 'En ligne', away: 'Absent', busy: 'Occupé' };
