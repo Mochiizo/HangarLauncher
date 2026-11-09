@@ -7,6 +7,7 @@ const steam = require('./steam');
 const epic = require('./epic');
 const more = require('./more');
 const custom = require('./custom');
+const friends = require('./friends');
 const demo = require('./demo');
 const { startTracker, runningGames, gameState, pidAlive } = require('./tracker');
 const { steamNews } = require('./news');
@@ -492,6 +493,17 @@ app.whenReady().then(() => {
   createWindow();
   if (!PREVIEW) updater.setup(() => win, () => { quitting = true; });
   ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
+  // Amis Steam (clé API) : statut, jeu en cours ; un clic ouvre la discussion dans Steam
+  ipcMain.handle('friends:get', () => {
+    const settings = store.settings();
+    const steamId = settings.steamId || cache.status?.steam?.user?.steamId || null;
+    return friends.list(settings.steamApiKey, steamId);
+  });
+  ipcMain.handle('friends:open', (_e, id, action) => {
+    if (!/^\d{17}$/.test(String(id))) return false;
+    shell.openExternal(action === 'profile' ? `steam://url/SteamIDPage/${id}` : `steam://friends/message/${id}`);
+    return true;
+  });
   // Montre le fichier de diagnostic dans l'Explorateur (à envoyer quand un jeu manque)
   ipcMain.handle('diag:open', () => {
     const file = path.join(app.getPath('userData'), 'diagnostic.json');

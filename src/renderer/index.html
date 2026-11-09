@@ -89,6 +89,26 @@
 <div id="dlbar" class="dlbar" role="status" aria-live="polite" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+<!-- Amis Steam : bulle en bas à droite, qui s'ouvre en panneau -->
+<aside class="friends" id="friends" aria-label="Amis Steam">
+  <section class="friends-panel" id="friends-panel" hidden>
+    <header class="friends-head">
+      <div>
+        <h2>Amis</h2>
+        <span class="muted small" id="friends-sub"></span>
+      </div>
+      <button type="button" class="btn-ghost friends-close" id="friends-close" aria-label="Fermer la liste d'amis">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="friends-body" id="friends-body"></div>
+  </section>
+  <button type="button" class="friends-bubble" id="friends-bubble" aria-expanded="false" aria-controls="friends-panel">
+    <span class="friends-faces" id="friends-faces" aria-hidden="true"></span>
+    <span class="friends-label"><strong>Amis</strong><span id="friends-count"></span></span>
+  </button>
+</aside>
+
 <dialog id="add-game-dialog" class="settings confirm" aria-labelledby="ag-title">
   <form method="dialog">
     <h2 id="ag-title">Ajouter un jeu</h2>

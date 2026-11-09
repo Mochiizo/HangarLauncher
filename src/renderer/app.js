@@ -968,7 +968,7 @@ async function openSettings() {
 $('#settings-form').addEventListener('submit', async () => {
   const f = $('#settings-form');
   await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked });
-  load(true);
+  load(true).then(() => refreshFriends());
 });
 $('#settings-cancel').addEventListener('click', () => $('#settings').close());
 document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', async () => {
@@ -1036,6 +1036,69 @@ function showWhatsNew(u) {
 }
 
 $('#open-diag')?.addEventListener('click', () => api.openDiagnostic());
+
+// ---------- Amis Steam ----------
+const friendsState = { data: null, open: false };
+const FRIEND_LABEL = { online: 'En ligne', away: 'Absent', busy: 'Occupé' };
+function friendRow(f) {
+  const sub = f.state === 'playing' ? f.game : f.state === 'offline'
+    ? (f.lastOnline ? `Vu ${relative(f.lastOnline).toLowerCase()}` : 'Hors ligne')
+    : FRIEND_LABEL[f.state] || 'En ligne';
+  return el('button', { type: 'button', class: 'friend', 'data-state': f.state, title: `Discuter avec ${f.name} dans Steam`,
+    onclick: () => api.openFriend(f.id, 'chat'),
+    oncontextmenu: (e) => { e.preventDefault(); api.openFriend(f.id, 'profile'); } },
+    el('span', { class: 'friend-avatar' }, f.avatar ? el('img', { src: f.avatar, alt: '', loading: 'lazy' }) : el('img', { alt: '' })),
+    el('span', { class: 'friend-text' }, el('span', { class: 'friend-name' }, f.name), el('span', { class: 'friend-sub' }, sub)));
+}
+function renderFriends() {
+  const d = friendsState.data;
+  const list = d?.friends || [];
+  const playing = list.filter((f) => f.state === 'playing');
+  const online = list.filter((f) => f.state !== 'offline' && f.state !== 'playing');
+  const offline = list.filter((f) => f.state === 'offline');
+  // bulle : visages des amis en jeu puis en ligne
+  const faces = [...playing, ...online].slice(0, 3);
+  $('#friends-faces').replaceChildren(...(faces.length ? faces.map((f) => el('img', { src: f.avatar || '', alt: '' }))
+    : [el('span', { class: 'ff-empty' }, svg('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg>'))]));
+  const count = $('#friends-count');
+  count.className = playing.length ? 'live' : '';
+  count.textContent = d?.status !== 'ok' ? '' : playing.length ? `${playing.length} en jeu` : `${online.length} en ligne`;
+  $('#friends-sub').textContent = d?.status === 'ok' ? `${playing.length + online.length} en ligne sur ${list.length}` : '';
+  $('#friends-bubble').setAttribute('aria-label', d?.status === 'ok' ? `Amis : ${playing.length} en jeu, ${online.length} en ligne` : 'Amis');
+
+  const body = $('#friends-body');
+  if (!d) { body.replaceChildren(el('p', { class: 'friends-empty' }, 'Chargement de tes amis…')); return; }
+  if (d.status === 'nokey') {
+    body.replaceChildren(el('div', { class: 'friends-empty' },
+      el('p', { style: 'margin:0' }, "Pour voir tes amis Steam et ce qu'ils jouent, ajoute ta clé API Steam dans les Réglages."),
+      el('button', { type: 'button', class: 'pill', onclick: () => { toggleFriends(false); openSettings(); } }, 'Ouvrir les Réglages')));
+    return;
+  }
+  if (d.status === 'private') { body.replaceChildren(el('p', { class: 'friends-empty' }, "Steam ne partage pas ta liste d'amis. Dans Steam : Profil, Modifier le profil, Paramètres de confidentialité, puis mets « Liste d'amis » en Public.")); return; }
+  if (d.status === 'nouser') { body.replaceChildren(el('p', { class: 'friends-empty' }, 'Connecte-toi à Steam sur ce PC pour voir tes amis.')); return; }
+  if (d.status === 'error' && !list.length) { body.replaceChildren(el('p', { class: 'friends-empty' }, "Impossible de joindre Steam pour l'instant. Nouvel essai dans une minute.")); return; }
+  if (!list.length) { body.replaceChildren(el('p', { class: 'friends-empty' }, "Aucun ami dans ta liste Steam pour l'instant.")); return; }
+  const group = (title, items) => items.length ? el('section', { class: 'friends-group' }, el('h3', {}, `${title} · ${items.length}`), ...items.map(friendRow)) : null;
+  const off = offline.length ? el('details', { class: 'friends-group' }, el('summary', {}, `Hors ligne · ${offline.length}`), ...offline.map(friendRow)) : null;
+  body.replaceChildren(...[group('En jeu', playing), group('En ligne', online), off].filter(Boolean));
+}
+async function refreshFriends() {
+  if (!api.friends) return;
+  try { friendsState.data = await api.friends(); } catch { /* garde l'ancienne liste */ }
+  renderFriends();
+}
+function toggleFriends(force) {
+  friendsState.open = force ?? !friendsState.open;
+  $('#friends-panel').hidden = !friendsState.open;
+  $('#friends-bubble').setAttribute('aria-expanded', String(friendsState.open));
+  if (friendsState.open) refreshFriends();
+}
+$('#friends-bubble').addEventListener('click', () => toggleFriends());
+$('#friends-close').addEventListener('click', () => toggleFriends(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && friendsState.open && !document.querySelector('dialog[open]')) toggleFriends(false); });
+renderFriends();
+refreshFriends();
+setInterval(() => { if (document.visibilityState === 'visible') refreshFriends(); }, 60_000);
 
 if (api.appUpdate) {
   api.appUpdate.onChange(renderAppUpdate);

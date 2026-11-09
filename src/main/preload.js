@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
   info: () => ipcRenderer.invoke('app:info'),
   openDiagnostic: () => ipcRenderer.invoke('diag:open'),
+  friends: () => ipcRenderer.invoke('friends:get'),
+  openFriend: (id, action) => ipcRenderer.invoke('friends:open', id, action),
   appUpdate: {
     state: () => ipcRenderer.invoke('app-update:state'),
     check: () => ipcRenderer.invoke('app-update:check'),

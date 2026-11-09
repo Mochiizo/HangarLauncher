@@ -69,7 +69,10 @@ function createStore(dir) {
       const prev = Object.keys(db.snapshots).filter((d) => d < day).sort().pop();
       if (db.snapshots[day] && prev) {
         for (const [k, total] of Object.entries(db.snapshots[day])) {
-          const diff = total - (db.snapshots[prev][k] || 0);
+          // Jeu absent du snapshot précédent : il vient d'apparaître dans la bibliothèque (clé API, jeu
+          // retrouvé…), pas d'être joué. Son temps total n'est pas du temps joué ce jour-là.
+          if (!(k in db.snapshots[prev])) continue;
+          const diff = total - db.snapshots[prev][k];
           if (diff > 0) out[k] = diff;
         }
       }
