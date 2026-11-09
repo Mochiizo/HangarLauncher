@@ -1035,6 +1035,8 @@ function showWhatsNew(u) {
   d.addEventListener('close', () => { if (d.returnValue === 'update') api.appUpdate.download(); }, { once: true });
 }
 
+$('#open-diag')?.addEventListener('click', () => api.openDiagnostic());
+
 if (api.appUpdate) {
   api.appUpdate.onChange(renderAppUpdate);
   api.appUpdate.state().then((u) => { renderAppUpdate(u); const v = $('#app-version'); if (v) v.textContent = `Version ${u.current}`; });

@@ -185,7 +185,11 @@ function librarySignature() {
   const parts = [];
   try {
     const sp = settings.steamPath || steam.defaultSteamPath();
-    if (sp && fs.existsSync(sp)) parts.push([...steam.installedApps(sp).keys()].sort().join(','));
+    if (sp && fs.existsSync(sp)) {
+      parts.push([...steam.installedApps(sp).keys()].sort().join(','));
+      // un jeu ajouté à la bibliothèque Steam (même sans l'installer) crée un dossier dans librarycache
+      parts.push(`lib:${steam.libraryCacheIds(sp).size}`);
+    }
   } catch { /* ignore */ }
   const ep = settings.epicPath || epic.defaultEpicDataPath();
   if (ep) {
@@ -231,13 +235,21 @@ function watchLibrary() {
 async function loadLibrary(force = false) {
   if (!force && cache.at && Date.now() - cache.at < REFRESH_MS) return cache;
   const settings = store.settings();
+  // Ancienne version : un échec réseau était mémorisé comme « pas un jeu ». On oublie ces réponses une fois.
+  if (!store.db.nameCacheV2) {
+    for (const [id, n] of Object.entries(store.db.nameCache)) if (!n) delete store.db.nameCache[id];
+    store.db.nameCacheV2 = true;
+  }
   const [s, e, o] = await Promise.all([
     steam.library(settings, store.db.nameCache),
     Promise.resolve(epic.library(settings)),
     more.library().catch(() => ({ games: [], status: {} }))
   ]);
   // Diagnostic Ubisoft / EA / Xbox : %APPDATA%\Hangar\plateformes.json
-  try { fs.writeFileSync(path.join(app.getPath('userData'), 'plateformes.json'), JSON.stringify(more.diagnostic(), null, 2)); } catch { /* ignore */ }
+  try {
+    const diag = { version: app.getVersion(), at: new Date().toISOString(), steam: steam.diagnostic(settings.steamPath), epic: { count: e.games.length, installed: e.games.filter((g) => g.installed).map((g) => g.title), status: e.status }, autres: more.diagnostic() };
+    fs.writeFileSync(path.join(app.getPath('userData'), 'diagnostic.json'), JSON.stringify(diag, null, 2));
+  } catch { /* ignore */ }
   // Ubisoft, EA, Xbox : un jeu déjà présent via Steam ou Epic (même dossier) n'est pas ajouté une deuxième fois
   const dirKey = (d) => String(d || '').toLowerCase().replace(/[\\/]+$/, '');
   const knownDirs = new Set([...s.games, ...e.games].filter((g) => g.installDir).map((g) => dirKey(g.installDir)));
@@ -265,6 +277,21 @@ async function loadLibrary(force = false) {
     }
   }
   store.save();
+
+  // Jeux Steam de la bibliothèque dont on ne connaît pas encore le nom : recherche en arrière-plan,
+  // la bibliothèque se complète au fur et à mesure
+  const pendingNames = s.status.pendingNames || [];
+  delete s.status.pendingNames;
+  s.status.pendingCount = pendingNames.length;
+  if (pendingNames.length && !isDemo) {
+    steam.resolveNames(pendingNames, store.db.nameCache, {
+      onProgress: async () => {
+        store.save();
+        await loadLibrary(true).catch(() => {});
+        if (win && !win.isDestroyed()) win.webContents.send('library-changed');
+      }
+    }).catch(() => {});
+  }
 
   cache = { games, at: Date.now(), status: { demo: isDemo, steam: s.status, epic: e.status, more: o.status } };
   return cache;
@@ -465,6 +492,12 @@ app.whenReady().then(() => {
   createWindow();
   if (!PREVIEW) updater.setup(() => win, () => { quitting = true; });
   ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
+  // Montre le fichier de diagnostic dans l'Explorateur (à envoyer quand un jeu manque)
+  ipcMain.handle('diag:open', () => {
+    const file = path.join(app.getPath('userData'), 'diagnostic.json');
+    if (fs.existsSync(file)) shell.showItemInFolder(file); else shell.openPath(app.getPath('userData'));
+    return true;
+  });
   if (!PREVIEW) createTray();
   if (process.argv.includes('--hidden')) win.hide();
   setInterval(() => loadLibrary(true).then(() => { if (win && !win.isDestroyed()) win.webContents.send('library-changed'); }).catch(() => {}), REFRESH_MS);

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
   info: () => ipcRenderer.invoke('app:info'),
+  openDiagnostic: () => ipcRenderer.invoke('diag:open'),
   appUpdate: {
     state: () => ipcRenderer.invoke('app-update:state'),
     check: () => ipcRenderer.invoke('app-update:check'),
