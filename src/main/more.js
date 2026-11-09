@@ -15,7 +15,13 @@ const WIN = process.platform === 'win32';
 const SCRIPT = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$r = [ordered]@{ ubisoft = @(); apps = @(); xbox = @() }
+$r = [ordered]@{ ubisoft = @(); apps = @(); xbox = @(); gog = @(); galaxy = $null }
+foreach ($k in Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\GOG.com\Games') {
+  $p = Get-ItemProperty $k.PSPath
+  if ($p.path) { $r.gog += [pscustomobject]@{ id = [string]$p.gameID; name = $p.gameName; dir = $p.path; exe = $p.exe; workingDir = $p.workingDir; launchParam = $p.launchParam; dependsOn = [string]$p.dependsOn } }
+}
+$gc = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\GOG.com\GalaxyClient\paths'
+if ($gc.client) { $r.galaxy = Join-Path $gc.client 'GalaxyClient.exe' }
 foreach ($k in Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\Ubisoft\Launcher\Installs') {
   $p = Get-ItemProperty $k.PSPath
   if ($p.InstallDir) { $r.ubisoft += [pscustomobject]@{ id = $k.PSChildName; dir = $p.InstallDir } }
@@ -43,7 +49,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
 let lastScan = null; // diagnostic : résultat brut du dernier scan
 function scanWindows() {
-  if (!WIN) return Promise.resolve({ ubisoft: [], apps: [], xbox: [] });
+  if (!WIN) return Promise.resolve({ ubisoft: [], apps: [], xbox: [], gog: [], galaxy: null });
   const encoded = Buffer.from(SCRIPT, 'utf16le').toString('base64');
   return new Promise((resolve) => {
     execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
@@ -54,11 +60,11 @@ function scanWindows() {
         const json = text.slice(Math.max(0, text.lastIndexOf('\n{') + 1));
         try { data = JSON.parse(json); } catch (e) { parseError = e.message; }
         const arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
-        const res = { ubisoft: arr(data?.ubisoft), apps: arr(data?.apps), xbox: arr(data?.xbox) };
+        const res = { ubisoft: arr(data?.ubisoft), apps: arr(data?.apps), xbox: arr(data?.xbox), gog: arr(data?.gog), galaxy: data?.galaxy || null };
         lastScan = {
           at: new Date().toISOString(), error: err?.message || null, parseError, stderr: String(errOut || '').slice(0, 2000), stdoutStart: text.slice(0, 300),
           ubisoft: res.ubisoft, apps: res.apps.map((x) => ({ key: x.key, name: x.name, publisher: x.publisher, dir: x.dir, icon: x.icon })),
-          xbox: res.xbox.map((x) => ({ pfn: x.pfn, dir: x.dir, app: x.app, hasConfig: !!x.config }))
+          xbox: res.xbox.map((x) => ({ pfn: x.pfn, dir: x.dir, app: x.app, hasConfig: !!x.config })), gog: res.gog, galaxy: res.galaxy
         };
         resolve(res);
       });
@@ -91,7 +97,7 @@ function eaExe(dir, icon) {
 }
 
 async function library() {
-  const status = { ubisoft: 0, ea: 0, xbox: 0 };
+  const status = { ubisoft: 0, ea: 0, xbox: 0, gog: 0 };
   if (!WIN) return { games: [], status };
   const data = await scanWindows();
   const games = [];
@@ -140,6 +146,22 @@ async function library() {
     }));
   }
 
+  // GOG (GOG Galaxy ou installeurs GOG) : registre HKLM\SOFTWARE\WOW6432Node\GOG.com\Games
+  for (const x of data.gog) {
+    const dir = String(x.dir || '').replace(/[\\/]+$/, '');
+    if (!x.id || x.dependsOn || !exists(dir)) continue; // dependsOn = DLC d'un autre jeu
+    const exe = x.exe && exists(x.exe) ? x.exe : null;
+    games.push(base({
+      key: `gog-${x.id}`, source: 'gog', id: String(x.id),
+      title: cleanName(x.name || path.basename(dir)),
+      installDir: path.normalize(dir),
+      exes: exe ? [path.basename(exe).toLowerCase()] : [],
+      launchExe: exe, launchCwd: x.workingDir && exists(x.workingDir) ? x.workingDir : (exe ? path.dirname(exe) : dir),
+      launchArgs: String(x.launchParam || '').trim(),
+      galaxy: data.galaxy && exists(data.galaxy) ? data.galaxy : null
+    }));
+  }
+
   for (const g of games) status[g.source]++;
   if (lastScan) lastScan.kept = games.map((g) => `${g.key} | ${g.title}`);
   return { games, status };
@@ -153,6 +175,23 @@ function launch(g) {
     p.on('error', (e) => console.error('[more] xbox', e.message));
     p.unref();
     return true;
+  }
+  if (g.source === 'gog') {
+    // Par GOG Galaxy s'il est installé (temps de jeu et sauvegardes en ligne), sinon directement le jeu
+    if (g.galaxy && exists(g.galaxy)) {
+      const p = spawn(g.galaxy, ['/command=runGame', `/gameId=${g.id}`, `/path=${g.installDir}`], { detached: true, stdio: 'ignore' });
+      p.on('error', (e) => console.error('[more] gog galaxy', e.message));
+      p.unref();
+      return true;
+    }
+    if (g.launchExe && exists(g.launchExe)) {
+      const args = g.launchArgs ? g.launchArgs.match(/"[^"]*"|\S+/g).map((a) => a.replace(/^"|"$/g, '')) : [];
+      const p = spawn(g.launchExe, args, { cwd: g.launchCwd, detached: true, stdio: 'ignore' });
+      p.on('error', () => require('electron').shell.openPath(g.launchExe)); // droits administrateur demandés : on passe par Windows
+      p.unref();
+      return true;
+    }
+    return false;
   }
   if (g.source === 'ea' && g.launchExe && exists(g.launchExe)) {
     // Ouverture « comme un double-clic » (ShellExecute) : gère la demande d'autorisation Windows

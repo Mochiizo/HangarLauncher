@@ -47,6 +47,7 @@ const SOURCES = {
   ubisoft: { name: 'Ubisoft', long: 'Ubisoft Connect', chip: 'UBI', via: 'Ubisoft Connect' },
   ea: { name: 'EA', long: 'EA app', chip: 'EA', via: "l'EA app" },
   xbox: { name: 'Xbox', long: 'Xbox', chip: 'XBOX', via: "l'appli Xbox" },
+  gog: { name: 'GOG', long: 'GOG Galaxy', chip: 'GOG', via: 'GOG Galaxy' },
   custom: { name: 'Ajoutés', long: 'Jeux ajoutés', chip: 'PC' }
 };
 const ICONS = {
@@ -404,7 +405,7 @@ function renderGrid(list, sel) {
 function renderBanner() {
   const s = state.status, b = $('#banner');
   let msg = null;
-  if (s.demo) msg = 'Aucun jeu trouvé sur cet ordinateur (Steam, Epic, Ubisoft, EA, Xbox) : voici des jeux de démonstration. Vérifie les dossiers dans les Réglages.';
+  if (s.demo) msg = 'Aucun jeu trouvé sur cet ordinateur (Steam, Epic, Ubisoft, EA, Xbox, GOG) : voici des jeux de démonstration. Vérifie les dossiers dans les Réglages.';
   else if (s.steam?.api === 'error') msg = `Steam : ${s.steam.error}. Les jeux installés restent affichés.`;
   b.hidden = !msg;
   b.textContent = msg || '';
@@ -959,7 +960,7 @@ async function openSettings() {
   $('#steam-detected').textContent = st.found ? `Steam détecté${st.user ? ` · compte ${st.user.name}` : ''}` : 'Steam introuvable à cet emplacement.';
   $('#epic-detected').className = 'small ' + (ep.found ? 'ok' : 'warn');
   const mo = state.status.more || {};
-  const moreTxt = [['ubisoft', 'Ubisoft Connect'], ['ea', 'EA app'], ['xbox', 'Xbox']].map(([k, n]) => `${n} : ${mo[k] || 0} jeu${(mo[k] || 0) > 1 ? 'x' : ''}`).join(' · ');
+  const moreTxt = [['ubisoft', 'Ubisoft Connect'], ['ea', 'EA app'], ['xbox', 'Xbox'], ['gog', 'GOG']].map(([k, n]) => `${n} : ${mo[k] || 0} jeu${(mo[k] || 0) > 1 ? 'x' : ''}`).join(' · ');
   if ($('#more-detected')) $('#more-detected').textContent = `Détectés automatiquement · ${moreTxt}`;
   $('#epic-detected').textContent = ep.found ? `Launcher Epic détecté · ${ep.count} jeu${ep.count > 1 ? 'x' : ''} installé${ep.count > 1 ? 's' : ''}` : 'Launcher Epic introuvable à cet emplacement.';
   $('#settings').showModal();

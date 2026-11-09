@@ -162,7 +162,7 @@ function launchGame(key, action) {
     if (g.source === 'steam' && /^\d+$/.test(g.id)) { shell.openExternal(`steam://uninstall/${g.id}`); return 'steam'; }
     if (g.source === 'epic') { shell.openExternal('com.epicgames.launcher://library'); return 'epic'; }
     // Ubisoft, EA, Xbox : désinstallation depuis les paramètres Windows (Applications installées)
-    if (['ubisoft', 'ea', 'xbox'].includes(g.source)) { shell.openExternal('ms-settings:appsfeatures'); return 'windows'; }
+    if (['ubisoft', 'ea', 'xbox', 'gog'].includes(g.source)) { shell.openExternal('ms-settings:appsfeatures'); return 'windows'; }
     return false;
   }
   if (action === 'update' && g.source === 'steam') {
@@ -172,7 +172,7 @@ function launchGame(key, action) {
     return true;
   }
   if (action === 'play' && g.source === 'custom') return custom.launch(g);
-  if (action === 'play' && (g.launchExe || g.appUserModelId)) return more.launch(g);
+  if (action === 'play' && (g.launchExe || g.appUserModelId || g.source === 'gog')) return more.launch(g);
   const url = action === 'install' ? g.installUrl : g.launchUrl;
   if (typeof url !== 'string' || !LAUNCH_RE.test(url)) return false;
   shell.openExternal(url);
@@ -211,7 +211,7 @@ function watchLibrary() {
       try {
         const o = await more.library();
         const now = o.games.map((g) => g.key).sort().join(',');
-        const before = cache.games.filter((g) => ['ubisoft', 'ea', 'xbox'].includes(g.source)).map((g) => g.key).sort().join(',');
+        const before = cache.games.filter((g) => ['ubisoft', 'ea', 'xbox', 'gog'].includes(g.source)).map((g) => g.key).sort().join(',');
         // un jeu Ubisoft/EA déjà fourni par Steam/Epic n'est pas dans cache : on compare seulement les nouveaux venus
         const added = o.games.some((g) => !cache.games.some((c) => c.key === g.key || (c.installDir && g.installDir && c.installDir.toLowerCase() === g.installDir.toLowerCase())));
         const removed = before && before.split(',').some((k) => !now.split(',').includes(k));
