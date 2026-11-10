@@ -299,6 +299,101 @@ function renderStats(g) {
     stat('Espace disque', g.installed ? size(g.sizeBytes) : 'Non installé'));
 }
 
+// ---------- Succès Steam ----------
+const achState = { key: null, data: null, tab: 'todo', all: false };
+const achCache = new Map();
+const ACH_MAX = 12;
+
+function achDate(t) {
+  return new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function achPercent(p) {
+  if (p == null) return null;
+  return `${p < 10 ? p.toFixed(1).replace('.', ',') : Math.round(p)} % des joueurs`;
+}
+// Icône d'un succès : plusieurs adresses possibles (CDN de Steam) ; si aucune ne répond, un trophée
+const TROPHY = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6M10 17h4"/></svg>';
+function achIcon(urls) {
+  const box = el('span', { class: 'ach-icon' });
+  const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+  const fallback = () => { box.classList.add('no-img'); box.replaceChildren(svg(TROPHY)); };
+  if (!list.length) { fallback(); return box; }
+  let i = 0;
+  const img = el('img', { src: list[0], alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });
+  img.onerror = () => { i++; if (i < list.length) img.src = list[i]; else fallback(); };
+  box.append(img);
+  return box;
+}
+function achItem(a, known) {
+  const secret = a.hidden && !a.achieved && !a.desc;
+  const rare = a.percent != null && a.percent < 10;
+  const meta = [a.achieved && a.unlockTime ? `Obtenu le ${achDate(a.unlockTime)}` : null, achPercent(a.percent)].filter(Boolean).join(' · ');
+  return el('div', { class: `ach${a.achieved ? ' done' : ''}${rare ? ' rare' : ''}` },
+    achIcon(a.achieved || !known ? a.icon : a.iconGray),
+    el('span', { class: 'ach-text' },
+      el('span', { class: 'ach-name' }, a.name),
+      el('span', { class: 'ach-desc' }, secret ? 'Succès secret : la description apparaîtra une fois obtenu.' : a.desc),
+      meta ? el('span', { class: 'ach-meta' }, meta) : null));
+}
+function paintAchievements() {
+  const d = achState.data;
+  const list = $('#ach-list'), more = $('#ach-more');
+  more.hidden = true;
+  $('#ach-progress').hidden = true;
+  $('#ach-tabs').replaceChildren();
+  $('#ach-count').textContent = '';
+  if (!d) { list.replaceChildren(el('p', { class: 'muted small' }, 'Chargement des succès…')); return; }
+  if (d.status === 'nokey') {
+    list.replaceChildren(el('div', { class: 'ach-empty' }, el('span', {}, 'Ajoute ta clé API Steam dans les Réglages pour voir tes succès et ceux qu\'il te reste à débloquer.'),
+      el('button', { type: 'button', class: 'pill', onclick: () => openSettings() }, 'Ouvrir les Réglages')));
+    return;
+  }
+  if (d.status === 'nouser') { list.replaceChildren(el('p', { class: 'muted small' }, 'Connecte-toi à Steam sur ce PC pour voir tes succès.')); return; }
+  if (d.status === 'none') { list.replaceChildren(el('p', { class: 'muted small' }, "Ce jeu n'a pas de succès Steam.")); return; }
+  if (d.status === 'error' && !d.items.length) { list.replaceChildren(el('p', { class: 'muted small' }, "Impossible de joindre Steam pour l'instant.")); return; }
+
+  const known = d.status === 'ok';
+  const done = d.items.filter((a) => a.achieved).sort((a, b) => b.unlockTime - a.unlockTime);
+  // À débloquer : les plus courants d'abord (les plus faciles à obtenir)
+  const todo = d.items.filter((a) => !a.achieved).sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1));
+  if (known) {
+    const pct = d.total ? Math.round((d.unlocked / d.total) * 100) : 0;
+    $('#ach-count').textContent = `${d.unlocked} sur ${d.total} · ${pct} %`;
+    $('#ach-progress').hidden = false;
+    $('#ach-bar').style.width = `${pct}%`;
+    if (achState.tab === 'todo' && !todo.length) achState.tab = 'done';
+    pills($('#ach-tabs'), [['todo', `À débloquer (${todo.length})`], ['done', `Obtenus (${done.length})`]], achState.tab, (v) => { achState.tab = v; achState.all = false; paintAchievements(); });
+  } else {
+    $('#ach-count').textContent = `${d.total} succès`;
+  }
+  const items = !known ? d.items : achState.tab === 'done' ? done : todo;
+  const shown = achState.all ? items : items.slice(0, ACH_MAX);
+  const note = !known ? el('p', { class: 'muted small ach-note' }, d.status === 'private'
+    ? "Steam ne partage pas tes succès : dans Steam, Profil, Modifier le profil, Paramètres de confidentialité, mets « Visibilité sur mes jeux » sur « tout le monde »."
+    : "Tes succès pour ce jeu ne sont pas encore disponibles (jeu jamais lancé ?). Voici la liste complète.") : null;
+  if (known && !items.length) { list.replaceChildren(el('p', { class: 'muted small' }, achState.tab === 'todo' ? 'Bravo, tu as débloqué tous les succès ! 🏆' : 'Aucun succès obtenu pour l\'instant.')); return; }
+  list.replaceChildren(...[note, ...shown.map((a) => achItem(a, known))].filter(Boolean));
+  if (items.length > ACH_MAX) {
+    more.hidden = false;
+    more.textContent = achState.all ? 'Afficher moins' : `Tout afficher (${items.length})`;
+    more.onclick = () => { achState.all = !achState.all; paintAchievements(); };
+  }
+}
+async function renderAchievements(g) {
+  const block = $('#ach-block');
+  if (!g || g.source !== 'steam' || !api.achievements) { block.hidden = true; achState.key = null; return; }
+  block.hidden = false;
+  if (achState.key === g.key && achState.data) return; // déjà affiché
+  achState.key = g.key; achState.tab = 'todo'; achState.all = false;
+  achState.data = achCache.get(g.key) || null;
+  paintAchievements();
+  let d = null;
+  try { d = await api.achievements(g.key); } catch { /* garde l'affichage */ }
+  if (!d) return;
+  if (d.status === 'ok' || d.status === 'none' || d.status === 'private' || d.status === 'partial') achCache.set(g.key, d);
+  if (achState.key === g.key) { achState.data = d; paintAchievements(); }
+}
+
 // ---------- Activité (actualités Steam) ----------
 const newsCache = new Map();
 const activityState = { key: null, expanded: false };
@@ -505,6 +600,7 @@ function render() {
   else setAmbience(sel);
   renderHero(sel);
   renderStats(sel);
+  renderAchievements(sel);
   renderActivity(sel);
   renderWeek(sel);
   renderGrid(list, sel);
@@ -1083,7 +1179,7 @@ function renderFriends() {
       el('button', { type: 'button', class: 'pill', onclick: () => { toggleFriends(false); openSettings(); } }, 'Ouvrir les Réglages')));
     return;
   }
-  if (d.status === 'private') { body.replaceChildren(el('p', { class: 'friends-empty' }, "Steam ne partage pas ta liste d'amis. Dans Steam : Profil, Modifier le profil, Paramètres de confidentialité, puis mets « Liste d'amis » en Public.")); return; }
+  if (d.status === 'private') { body.replaceChildren(el('p', { class: 'friends-empty' }, "Steam ne partage pas ta liste d'amis. Dans Steam : Profil, Modifier le profil, Paramètres de confidentialité, puis mets « Visibilité de ma liste d'amis » sur « tout le monde ».")); return; }
   if (d.status === 'nouser') { body.replaceChildren(el('p', { class: 'friends-empty' }, 'Connecte-toi à Steam sur ce PC pour voir tes amis.')); return; }
   if (d.status === 'error' && !list.length) { body.replaceChildren(el('p', { class: 'friends-empty' }, "Impossible de joindre Steam pour l'instant. Nouvel essai dans une minute.")); return; }
   if (!list.length) { body.replaceChildren(el('p', { class: 'friends-empty' }, "Aucun ami dans ta liste Steam pour l'instant.")); return; }

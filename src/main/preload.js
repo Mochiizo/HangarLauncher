@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   windowAction: (action) => ipcRenderer.invoke('window:action', action),
   onWindowState: (cb) => ipcRenderer.on('window-state', (_e, s) => cb(s)),
   friends: () => ipcRenderer.invoke('friends:get'),
+  achievements: (key) => ipcRenderer.invoke('achievements:get', key),
   openFriend: (id, action) => ipcRenderer.invoke('friends:open', id, action),
   appUpdate: {
     state: () => ipcRenderer.invoke('app-update:state'),

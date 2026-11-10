@@ -8,6 +8,7 @@ const epic = require('./epic');
 const more = require('./more');
 const custom = require('./custom');
 const friends = require('./friends');
+const achievements = require('./achievements');
 const demo = require('./demo');
 const { startTracker, runningGames, gameState, pidAlive } = require('./tracker');
 const { steamNews } = require('./news');
@@ -511,6 +512,14 @@ app.whenReady().then(() => {
     const settings = store.settings();
     const steamId = settings.steamId || cache.status?.steam?.user?.steamId || null;
     return friends.list(settings.steamApiKey, steamId);
+  });
+  // Succès Steam d'un jeu (clé API)
+  ipcMain.handle('achievements:get', (_e, key) => {
+    const g = cache.games.find((x) => x.key === key);
+    if (!g || g.source !== 'steam') return { status: 'none', items: [] };
+    const settings = store.settings();
+    const steamId = settings.steamId || cache.status?.steam?.user?.steamId || null;
+    return achievements.forGame(settings.steamApiKey, steamId, g.id);
   });
   ipcMain.handle('friends:open', (_e, id, action) => {
     if (!/^\d{17}$/.test(String(id))) return false;
