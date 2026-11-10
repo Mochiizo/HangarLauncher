@@ -623,3 +623,10 @@ body { -webkit-font-smoothing: antialiased; }
 body.maximized .win-btn .ic-max { display: none; }
 body.maximized .win-btn .ic-restore { display: block; }
 .win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Soutenir Hangar (Ko-fi) */
+.support-btn { color: #f7a8c8; text-decoration: none; }
+.support-btn:hover { color: #ff6b9d; }
+.support-btn:hover svg { fill: currentColor; }
+.support-btn svg { transition: fill .2s; }
+a.pill { text-decoration: none; display: inline-flex; align-items: center; }
