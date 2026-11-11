@@ -27,6 +27,9 @@
     <div class="topbar-right">
       <span id="count" class="muted small"></span>
       <button id="app-update" class="app-update" type="button" hidden></button>
+      <a class="icon-btn" id="feedback-btn" href="https://github.com/Mochiizo/HangarLauncher/issues/new" target="_blank" rel="noreferrer" aria-label="Donner mon avis sur Hangar" title="Donner mon avis">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>
+      </a>
       <a class="icon-btn support-btn" href="https://ko-fi.com/hangarlauncher" target="_blank" rel="noreferrer" aria-label="Soutenir Hangar sur Ko-fi" title="Soutenir Hangar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-9.2-8.6C1.3 8.5 3 5 6.4 5c2 0 3.3 1.1 4.1 2.3h3c.8-1.2 2.1-2.3 4.1-2.3 3.4 0 5.1 3.5 3.6 6.4C19 15.6 12 20 12 20z"/></svg>
       </a>
@@ -137,6 +140,73 @@
   </button>
 </aside>
 
+<!-- Présentation au premier lancement -->
+<dialog id="onboarding" class="settings onboarding" aria-labelledby="ob-title">
+  <div class="ob-steps" aria-hidden="true"><i></i><i></i><i></i></div>
+
+  <section class="ob-step" data-step="0">
+    <img class="ob-logo" src="assets/logo.svg" alt="">
+    <h2 id="ob-title">Bienvenue dans Hangar</h2>
+    <p class="ob-lead">Tous tes jeux PC au même endroit : Steam, Epic Games, Ubisoft Connect, EA, Xbox, GOG… et même ceux sans launcher.</p>
+    <div class="ob-found" id="ob-found"></div>
+    <ul class="ob-list">
+      <li><b>Joue en un clic</b> : Hangar s'efface pendant la partie et revient quand tu quittes.</li>
+      <li><b>Ta semaine de jeu</b> et le <b>calendrier des sorties</b>, sans rien noter.</li>
+      <li><b>Un jeu manque ?</b> Bouton « Ajouter un jeu » dans la bibliothèque.</li>
+    </ul>
+  </section>
+
+  <section class="ob-step" data-step="1" hidden>
+    <span class="ob-kicker">Facultatif, mais recommandé</span>
+    <h2>Débloque tout avec ta clé Steam</h2>
+    <p class="ob-lead">Une clé API Steam est gratuite et se crée en 1 minute. Elle permet à Hangar d'afficher :</p>
+    <ul class="ob-list">
+      <li><b>Toute ta bibliothèque Steam</b>, même les jeux jamais installés</li>
+      <li><b>Tes amis</b> en ligne et à quoi ils jouent</li>
+      <li><b>Tes succès</b>, ceux qu'il te manque et leur rareté</li>
+    </ul>
+    <div class="ob-req">
+      <b>Avant de commencer, vérifie que ton compte est éligible :</b>
+      <ul>
+        <li><b>Steam Guard sur ton téléphone</b> (l'authentificateur de l'appli mobile Steam) est obligatoire : sans lui, Steam refuse de créer la clé. Il simplifie aussi la connexion, en validant d'un clic sur ton téléphone.</li>
+        <li><b>Un compte Steam non limité</b>, c'est-à-dire avec au moins 5 $ (environ 5 €) dépensés sur Steam. Un compte limité n'a pas accès à la clé API.</li>
+      </ul>
+      <span class="muted">Pas éligible ? Aucun souci : Hangar fonctionne sans clé, avec tes jeux installés et ceux que tu as déjà lancés.</span>
+    </div>
+    <ol class="ob-how">
+      <li>Ouvre la page de Steam ci-dessous et connecte-toi.</li>
+      <li>Dans « Nom de domaine », écris <code>localhost</code>, accepte les conditions, puis clique sur « Enregistrer ».</li>
+      <li>Copie la clé affichée et colle-la ici.</li>
+    </ol>
+    <div class="ob-key">
+      <input id="ob-key" type="password" autocomplete="off" spellcheck="false" placeholder="Colle ta clé API Steam ici" aria-label="Clé API Steam">
+      <a class="pill" href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer">Obtenir ma clé</a>
+    </div>
+    <p class="small ob-key-msg" id="ob-key-msg" aria-live="polite"></p>
+    <p class="muted small">La clé reste sur ton PC et sert uniquement à lire tes infos Steam. Tu pourras la changer dans les Réglages.</p>
+  </section>
+
+  <section class="ob-step" data-step="2" hidden>
+    <span class="ob-kicker">Dernière étape</span>
+    <h2>Rends tes jeux visibles</h2>
+    <p class="ob-lead">Pour que Steam partage ton temps de jeu, tes succès et ta liste d'amis, règle ta confidentialité Steam ainsi :</p>
+    <div class="ob-privacy">
+      <div><span>Visibilité sur mes jeux</span><b>tout le monde</b></div>
+      <div><span>Visibilité de ma liste d'amis</span><b>tout le monde</b></div>
+      <div><span>Garder le temps total de jeu privé</span><b class="off">décoché</b></div>
+    </div>
+    <a class="pill" href="https://steamcommunity.com/my/edit/settings" target="_blank" rel="noreferrer">Ouvrir mes réglages de confidentialité Steam</a>
+    <p class="muted small" style="margin-top:14px">Un bug, une idée, un jeu qui manque ? Le bouton <b>bulle</b> en haut de Hangar sert à <b>donner ton avis</b>. Je lis tout !</p>
+  </section>
+
+  <div class="ob-actions">
+    <button type="button" class="pill" id="ob-skip">Passer</button>
+    <span class="ob-spacer"></span>
+    <button type="button" class="pill" id="ob-back" hidden>Retour</button>
+    <button type="button" class="btn btn-play ob-next" id="ob-next">Suivant</button>
+  </div>
+</dialog>
+
 <dialog id="add-game-dialog" class="settings confirm" aria-labelledby="ag-title">
   <form method="dialog">
     <h2 id="ag-title">Ajouter un jeu</h2>
@@ -195,6 +265,7 @@
       </div>
       <label for="steamApiKey">Clé API Steam <span class="muted">(facultative)</span></label>
       <input id="steamApiKey" name="steamApiKey" type="password" autocomplete="off">
+      <span class="muted small">Pour créer une clé, Steam exige Steam Guard sur ton téléphone et un compte non limité (au moins 5 $ dépensés). <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer">Obtenir ma clé</a></span>
       <p class="muted small">Sans clé, l'appli voit tes jeux installés et ceux que tu as déjà lancés. Avec une clé, elle liste aussi les jeux possédés jamais installés. Clé gratuite : <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noreferrer">steamcommunity.com/dev/apikey</a></p>
     </fieldset>
 
@@ -222,14 +293,10 @@
 
     <fieldset>
       <legend>Hangar</legend>
-      <div class="field-row" style="align-items:center;justify-content:space-between">
-        <span class="small" id="app-version"></span>
+      <span class="small muted" id="app-version"></span>
+      <div class="about-actions">
         <button type="button" class="pill" id="check-update">Rechercher une mise à jour</button>
-        <a class="pill" href="https://ko-fi.com/hangarlauncher" target="_blank" rel="noreferrer">Soutenir Hangar ♥</a>
-      </div>
-      <div class="field-row" style="align-items:center;justify-content:space-between">
-        <span class="small muted">Un jeu manque ? Envoie ce fichier au développeur.</span>
-        <button type="button" class="pill" id="open-diag">Fichier de diagnostic</button>
+        <button type="button" class="pill" id="replay-onboarding">Revoir la présentation</button>
       </div>
     </fieldset>
 

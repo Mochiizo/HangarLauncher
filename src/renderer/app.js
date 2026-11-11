@@ -1134,6 +1134,63 @@ function showWhatsNew(u) {
 
 $('#open-diag')?.addEventListener('click', () => api.openDiagnostic());
 
+// ---------- Présentation au premier lancement ----------
+const ob = { step: 0, max: 2 };
+function obFound() {
+  const n = (src) => state.games.filter((g) => g.source === src && (g.installed || src === 'steam' || src === 'epic')).length;
+  const parts = [['steam', 'Steam'], ['epic', 'Epic'], ['ubisoft', 'Ubisoft'], ['ea', 'EA'], ['xbox', 'Xbox'], ['gog', 'GOG']]
+    .map(([k, label]) => [label, n(k)]).filter(([, c]) => c > 0);
+  const total = state.games.length;
+  $('#ob-found').replaceChildren(...(total && !state.status.demo
+    ? [el('span', {}, el('b', {}, String(total)), ` jeu${total > 1 ? 'x' : ''} trouvé${total > 1 ? 's' : ''}`), ...parts.map(([l, c]) => el('span', {}, `${l} · ${c}`))]
+    : [el('span', {}, 'Aucun jeu trouvé pour l\'instant : vérifie les dossiers dans les Réglages.')]));
+}
+function obShow(step) {
+  ob.step = Math.max(0, Math.min(ob.max, step));
+  document.querySelectorAll('.ob-step').forEach((s) => { s.hidden = Number(s.dataset.step) !== ob.step; });
+  document.querySelectorAll('.ob-steps i').forEach((d, i) => d.classList.toggle('on', i <= ob.step));
+  $('#ob-back').hidden = ob.step === 0;
+  $('#ob-skip').hidden = ob.step === ob.max;
+  $('#ob-next').textContent = ob.step === ob.max ? "C'est parti !" : ob.step === 1 && !$('#ob-key').value.trim() ? 'Plus tard' : 'Suivant';
+}
+async function obFinish() {
+  $('#onboarding').close();
+  await api.setSettings({ onboarded: true });
+}
+async function obSaveKey() {
+  const key = $('#ob-key').value.trim();
+  if (!key) return true;
+  if (!/^[0-9A-Fa-f]{32}$/.test(key)) {
+    const m = $('#ob-key-msg'); m.className = 'small ob-key-msg warn';
+    m.textContent = 'Cette clé ne ressemble pas à une clé Steam (32 caractères, chiffres et lettres de A à F).';
+    return false;
+  }
+  await api.setSettings({ steamApiKey: key });
+  const m = $('#ob-key-msg'); m.className = 'small ob-key-msg ok'; m.textContent = 'Clé enregistrée ✓ Ta bibliothèque se complète en arrière-plan.';
+  load(true).then(() => { refreshFriends?.(); });
+  return true;
+}
+async function openOnboarding() {
+  obFound();
+  const s = await api.getSettings();
+  $('#ob-key').value = s.steamApiKey || '';
+  $('#ob-key-msg').textContent = s.steamApiKey ? 'Une clé est déjà enregistrée ✓' : '';
+  $('#ob-key-msg').className = 'small ob-key-msg' + (s.steamApiKey ? ' ok' : '');
+  obShow(0);
+  $('#onboarding').showModal();
+  $('#ob-next').focus();
+}
+$('#ob-next').addEventListener('click', async () => {
+  if (ob.step === 1 && !(await obSaveKey())) return;
+  if (ob.step === ob.max) return obFinish();
+  obShow(ob.step + 1);
+});
+$('#ob-back').addEventListener('click', () => obShow(ob.step - 1));
+$('#ob-skip').addEventListener('click', obFinish);
+$('#ob-key').addEventListener('input', () => { $('#ob-key-msg').textContent = ''; obShow(ob.step); });
+$('#onboarding').addEventListener('cancel', (e) => { e.preventDefault(); obFinish(); }); // Échap = passer
+$('#replay-onboarding')?.addEventListener('click', () => { $('#settings').close(); openOnboarding(); });
+
 // ---------- Boutons de fenêtre ----------
 document.querySelectorAll('.win-btn').forEach((b) => b.addEventListener('click', async () => {
   const st = await api.windowAction?.(b.dataset.win);
@@ -1249,4 +1306,20 @@ if (api.onLibraryChanged) api.onLibraryChanged(async () => {
   else if (added.length > 1) toast(`${added.length} nouveaux jeux dans ta bibliothèque.`);
 });
 
-load().then(pollUpdates);
+// Prévient Hangar quand l'accueil est vraiment prêt (bibliothèque, calendrier et images affichés) :
+// c'est à ce moment que l'écran de chargement s'efface et que la fenêtre apparaît
+async function signalReady() {
+  try {
+    if (releases.loading) await Promise.race([releases.loading, new Promise((r) => setTimeout(r, 4000))]);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const imgs = [...document.querySelectorAll('img')].filter((i) => !i.complete && i.getBoundingClientRect().top < innerHeight).slice(0, 40);
+    await Promise.race([Promise.all(imgs.map((i) => i.decode().catch(() => {}))), new Promise((r) => setTimeout(r, 3000))]);
+  } finally { api.ready?.(); }
+}
+
+load().then(async () => {
+  pollUpdates();
+  await signalReady();
+  // Premier lancement : présentation de Hangar (une seule fois)
+  try { const s = await api.getSettings(); if (!s.onboarded && !state.status.demo) setTimeout(openOnboarding, 1700); } catch { /* ignore */ }
+}, () => api.ready?.());

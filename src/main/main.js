@@ -149,7 +149,10 @@ function openLink(url) {
   if (!/^https:\/\//.test(url)) return;
   const m = url.match(/^https:\/\/store\.steampowered\.com\/app\/(\d+)/);
   const steamPath = store.settings().steamPath || steam.defaultSteamPath();
-  if (m && steamPath && fs.existsSync(steamPath)) shell.openExternal(`steam://store/${m[1]}`);
+  const hasSteam = steamPath && fs.existsSync(steamPath);
+  if (m && hasSteam) shell.openExternal(`steam://store/${m[1]}`);
+  // Pages de la communauté Steam (confidentialité, clé API, profils…) : dans l'appli Steam, où l'on est déjà connecté
+  else if (hasSteam && /^https:\/\/steamcommunity\.com\//.test(url)) shell.openExternal(`steam://openurl/${url}`);
   else shell.openExternal(url);
 }
 
@@ -234,8 +237,17 @@ function watchLibrary() {
   }, 15_000);
 }
 
-async function loadLibrary(force = false) {
-  if (!force && cache.at && Date.now() - cache.at < REFRESH_MS) return cache;
+// Un seul chargement à la fois : un second appel pendant un chargement attend le même résultat
+let libInflight = null;
+function loadLibrary(force = false, onStep) {
+  if (!force && cache.at && Date.now() - cache.at < REFRESH_MS) return Promise.resolve(cache);
+  if (libInflight) return libInflight;
+  libInflight = loadLibraryNow(onStep).finally(() => { libInflight = null; });
+  return libInflight;
+}
+
+async function loadLibraryNow(onStep) {
+  const step = (name) => (r) => { try { onStep?.(name); } catch { /* ignore */ } return r; };
   const settings = store.settings();
   // Ancienne version : un échec réseau était mémorisé comme « pas un jeu ». On oublie ces réponses une fois.
   if (!store.db.nameCacheV2) {
@@ -243,9 +255,9 @@ async function loadLibrary(force = false) {
     store.db.nameCacheV2 = true;
   }
   const [s, e, o] = await Promise.all([
-    steam.library(settings, store.db.nameCache),
-    Promise.resolve(epic.library(settings)),
-    more.library().catch(() => ({ games: [], status: {} }))
+    steam.library(settings, store.db.nameCache).then(step('steam')),
+    Promise.resolve(epic.library(settings)).then(step('epic')),
+    more.library().catch(() => ({ games: [], status: {} })).then(step('more'))
   ]);
   // Diagnostic Ubisoft / EA / Xbox : %APPDATA%\Hangar\plateformes.json
   try {
@@ -266,6 +278,7 @@ async function loadLibrary(force = false) {
   if (isDemo) games = demo.games();
   else {
     store.recordSnapshot(games);
+    step('art')();
     await artwork.enrichSteam(games, s.status.path, store.db.assetCache).catch(() => {});
     await artwork.enrichByTitle(others, store.db.titleCache, store.db.assetCache).catch(() => {});
   }
@@ -317,9 +330,9 @@ function week(isDemo) {
   return { days, trackingSince: isDemo ? null : store.firstSnapshotDay() };
 }
 
-function createWindow() {
+function createWindow(show = true) {
   win = new BrowserWindow({
-    width: 1440, height: 920, minWidth: 900, minHeight: 600,
+    width: 1440, height: 920, minWidth: 900, minHeight: 600, show,
     backgroundColor: '#0F1115', title: PREVIEW ? 'Hangar — Aperçu' : 'Hangar', icon: ICON, autoHideMenuBar: true,
     // Pas de barre de titre Windows : la barre du haut de Hangar en tient lieu (déplacement, boutons de fenêtre)
     titleBarStyle: 'hidden',
@@ -336,6 +349,74 @@ function createWindow() {
   win.on('unmaximize', sendMax);
 }
 
+// ---------- Écran de chargement ----------
+// À l'ouverture de Hangar (appli complètement fermée), une petite fenêtre montre le chargement réel :
+// bibliothèque de toutes les plateformes, jaquettes, prochaines sorties, amis, succès des derniers jeux.
+// La fenêtre principale n'apparaît qu'une fois tout prêt et affiché, puis la fusée décolle.
+let splash = null, splashLast = null;
+function createSplash() {
+  splash = new BrowserWindow({
+    width: 480, height: 300, frame: false, resizable: false, maximizable: false, fullscreenable: false,
+    show: false, center: true, backgroundColor: '#07080B', title: 'Hangar', icon: ICON, skipTaskbar: false,
+    webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+  });
+  splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'), { query: { v: app.getVersion() } });
+  splash.once('ready-to-show', () => splash?.show());
+  // une étape envoyée avant que la page soit prête n'est pas perdue
+  splash.webContents.on('did-finish-load', () => { if (splashLast) splash?.webContents.send('splash-progress', splashLast); });
+  splash.on('closed', () => { splash = null; });
+}
+function splashProgress(percent, text) {
+  splashLast = { percent, text };
+  if (splash && !splash.isDestroyed()) splash.webContents.send('splash-progress', { percent, text });
+}
+const within = (p, ms) => Promise.race([Promise.resolve(p).catch(() => null), new Promise((r) => setTimeout(r, ms))]);
+
+async function warmup() {
+  splashProgress(6, 'Démarrage…');
+  splashProgress(12, 'Lecture de ta bibliothèque…');
+  const steps = { steam: [30, 'Bibliothèque Steam chargée…'], epic: [38, 'Epic Games…'], more: [46, 'Ubisoft, EA, Xbox et GOG…'], art: [54, 'Chargement des jaquettes…'] };
+  await within(loadLibrary(true, (name) => steps[name] && splashProgress(...steps[name])), 30000);
+  if (cache.status?.demo) return;
+  const settings = store.settings();
+  const steamId = settings.steamId || cache.status?.steam?.user?.steamId || null;
+
+  splashProgress(64, 'Prochaines sorties…');
+  const owned = new Set(cache.games.filter((g) => g.source === 'steam').map((g) => g.id));
+  await within(getReleases({ steamId, cache: store.db.releaseCache, ownedIds: owned }), 8000);
+
+  if (settings.steamApiKey && steamId) {
+    splashProgress(76, 'Tes amis…');
+    await within(friends.list(settings.steamApiKey, steamId), 6000);
+    // Succès des jeux Steam joués récemment : prêts dès l'ouverture de leur fiche
+    splashProgress(84, 'Tes succès…');
+    const recent = cache.games.filter((g) => g.source === 'steam' && g.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 4);
+    await within(Promise.all(recent.map((g) => achievements.forGame(settings.steamApiKey, steamId, g.id))), 8000);
+  }
+  try { store.save(); } catch { /* ignore */ }
+}
+
+// Ouverture : écran de chargement → préchargement → fenêtre principale prête → décollage
+async function startWithSplash() {
+  createSplash();
+  const t0 = Date.now();
+  await warmup();
+  splashProgress(92, "Préparation de l'interface…");
+  // La fenêtre principale se construit cachée ; elle prévient quand l'accueil et ses images sont affichés
+  const ready = new Promise((resolve) => ipcMain.once('app:ready', resolve));
+  createWindow(false);
+  await within(ready, 8000);
+  // Au moins ~1,2 s d'écran de chargement, pour que l'animation ne « clignote » pas
+  const wait = 1200 - (Date.now() - t0);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  splashProgress(100, 'Prêt !');
+  await new Promise((r) => setTimeout(r, 350));
+  if (splash && !splash.isDestroyed()) splash.webContents.send('splash-done');
+  await new Promise((r) => setTimeout(r, 650)); // décollage de la fusée
+  if (win && !win.isDestroyed()) { win.show(); win.focus(); }
+  if (splash && !splash.isDestroyed()) splash.close();
+}
+
 function createTray() {
   try {
     // icône simplifiée (toit + fusée), lisible en 16 px près de l'horloge
@@ -343,11 +424,11 @@ function createTray() {
     tray = new Tray(trayIcon.isEmpty() ? nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }) : trayIcon.resize({ width: 16, height: 16, quality: 'best' }));
     tray.setToolTip('Hangar');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Ouvrir Hangar', click: () => { win.show(); win.focus(); } },
+      { label: 'Ouvrir Hangar', click: () => { if (win && !splash) { win.show(); win.focus(); } } },
       { type: 'separator' },
       { label: 'Quitter', click: () => { quitting = true; app.quit(); } }
     ]));
-    tray.on('click', () => { win.show(); win.focus(); });
+    tray.on('click', () => { if (win && !splash) { win.show(); win.focus(); } });
   } catch { tray = null; }
 }
 
@@ -460,6 +541,7 @@ function registerIpc() {
     const clean = {};
     for (const k of allowed) if (typeof patch?.[k] === 'string') clean[k] = patch[k].trim();
     if (typeof patch?.hideWhilePlaying === 'boolean') clean.hideWhilePlaying = patch.hideWhilePlaying;
+    if (typeof patch?.onboarded === 'boolean') clean.onboarded = patch.onboarded;
     store.setSettings(clean);
     if (typeof patch?.openAtLogin === 'boolean') app.setLoginItemSettings({ openAtLogin: patch.openAtLogin, args: ['--hidden'] });
     return true;
@@ -485,7 +567,7 @@ function migrateFromOldName() {
   } catch { /* migration facultative */ }
 }
 
-app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
+app.on('second-instance', () => { if (win && !splash) { win.show(); win.focus(); } else if (splash) splash.focus(); });
 app.on('before-quit', () => { quitting = true; });
 
 app.whenReady().then(() => {
@@ -496,7 +578,6 @@ app.whenReady().then(() => {
   store = createStore(app.getPath('userData'));
   registerProtocol();
   registerIpc();
-  createWindow();
   if (!PREVIEW) updater.setup(() => win, () => { quitting = true; });
   ipcMain.handle('app:info', () => ({ preview: PREVIEW, version: app.getVersion() }));
   // Boutons de fenêtre dessinés par Hangar (réduire, agrandir, fermer)
@@ -533,7 +614,9 @@ app.whenReady().then(() => {
     return true;
   });
   if (!PREVIEW) createTray();
-  if (process.argv.includes('--hidden')) win.hide();
+  // Démarrage avec Windows (--hidden) : pas d'écran de chargement, Hangar reste dans la zone de notification
+  if (process.argv.includes('--hidden')) createWindow(false);
+  else startWithSplash().catch(() => { if (!win) createWindow(); else win.show(); });
   setInterval(() => loadLibrary(true).then(() => { if (win && !win.isDestroyed()) win.webContents.send('library-changed'); }).catch(() => {}), REFRESH_MS);
   watchLibrary();
   startTracker(() => cache.games, (key) => store.addTrackedMinute(key));

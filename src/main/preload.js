@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   pickFolder: () => ipcRenderer.invoke('dialog:folder'),
   info: () => ipcRenderer.invoke('app:info'),
   openDiagnostic: () => ipcRenderer.invoke('diag:open'),
+  ready: () => ipcRenderer.send('app:ready'),
   windowAction: (action) => ipcRenderer.invoke('window:action', action),
   onWindowState: (cb) => ipcRenderer.on('window-state', (_e, s) => cb(s)),
   friends: () => ipcRenderer.invoke('friends:get'),
