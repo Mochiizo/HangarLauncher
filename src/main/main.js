@@ -363,7 +363,12 @@ function createSplash() {
     webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, autoplayPolicy: 'no-user-gesture-required' }
   });
   splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'), { query: { v: app.getVersion() } });
-  splash.once('ready-to-show', () => splash?.show());
+  // L'intro passe au premier plan, même par-dessus une appli en plein écran
+  splash.once('ready-to-show', () => {
+    if (!splash) return;
+    splash.setAlwaysOnTop(true, 'screen-saver');
+    splash.show(); splash.moveTop(); splash.focus();
+  });
   // une étape envoyée avant que la page soit prête n'est pas perdue
   splash.webContents.on('did-finish-load', () => { if (splashLast) splash?.webContents.send('splash-progress', splashLast); });
   splash.on('closed', () => { splash = null; });
@@ -417,7 +422,12 @@ async function startWithSplash() {
   await within(introDone, 30000);
   if (splash && !splash.isDestroyed()) splash.webContents.send('splash-done');
   await new Promise((r) => setTimeout(r, 650)); // décollage de la fusée
-  if (win && !win.isDestroyed()) { win.show(); win.focus(); }
+  if (win && !win.isDestroyed()) {
+    // Hangar prend le relais au premier plan, puis redevient une fenêtre normale
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.show(); win.moveTop(); win.focus();
+    setTimeout(() => { if (win && !win.isDestroyed()) win.setAlwaysOnTop(false); }, 800);
+  }
   if (splash && !splash.isDestroyed()) splash.close();
 }
 
@@ -618,9 +628,8 @@ app.whenReady().then(() => {
     return true;
   });
   if (!PREVIEW) createTray();
-  // Démarrage avec Windows (--hidden) : pas d'écran de chargement, Hangar reste dans la zone de notification
-  if (process.argv.includes('--hidden')) createWindow(false);
-  else startWithSplash().catch(() => { if (!win) createWindow(); else win.show(); });
+  // Ouverture à la main comme au démarrage de Windows : intro, chargement, puis Hangar s'ouvre
+  startWithSplash().catch(() => { if (!win) createWindow(); else win.show(); });
   setInterval(() => loadLibrary(true).then(() => { if (win && !win.isDestroyed()) win.webContents.send('library-changed'); }).catch(() => {}), REFRESH_MS);
   watchLibrary();
   startTracker(() => cache.games, (key) => store.addTrackedMinute(key));
