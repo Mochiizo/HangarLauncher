@@ -2,19 +2,24 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self'; media-src 'self'; style-src 'self' 'unsafe-inline'">
 <title>Hangar</title>
 <link rel="stylesheet" href="splash.css">
 </head>
 <body>
   <div class="splash" id="splash">
+    <!-- Clip d'ouverture (fusée) ; sans vidéo, on garde l'écran animé d'origine -->
+    <video class="intro" id="intro" src="assets/intro.mp4" autoplay muted playsinline preload="auto"></video>
+    <div class="shade"></div>
     <div class="glow"></div>
     <span class="ver" id="ver"></span>
+    <button class="skip" id="skip" type="button">Passer <span aria-hidden="true">›</span></button>
     <div class="center">
       <img class="rocket" src="assets/logo.svg" alt="">
       <div class="brand"><b>Hangar</b><i>Launcher</i></div>
     </div>
     <div class="foot">
+      <div class="mini-brand"><b>Hangar</b><i>Launcher</i></div>
       <div class="status"><span id="st">Démarrage…</span><span id="pc">0 %</span></div>
       <div class="bar" role="progressbar" aria-label="Chargement de Hangar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span id="fill"></span></div>
     </div>

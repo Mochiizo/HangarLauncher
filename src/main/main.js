@@ -353,12 +353,14 @@ function createWindow(show = true) {
 // À l'ouverture de Hangar (appli complètement fermée), une petite fenêtre montre le chargement réel :
 // bibliothèque de toutes les plateformes, jaquettes, prochaines sorties, amis, succès des derniers jeux.
 // La fenêtre principale n'apparaît qu'une fois tout prêt et affiché, puis la fusée décolle.
-let splash = null, splashLast = null;
+// Le clip d'ouverture se joue en entier (ou jusqu'à « Passer ») : Hangar s'ouvre quand le clip ET le chargement sont finis.
+let splash = null, splashLast = null, introDone = Promise.resolve();
 function createSplash() {
+  introDone = new Promise((resolve) => ipcMain.once('splash:finished', resolve));
   splash = new BrowserWindow({
-    width: 480, height: 300, frame: false, resizable: false, maximizable: false, fullscreenable: false,
+    width: 960, height: 540, frame: false, resizable: false, maximizable: false, fullscreenable: false,
     show: false, center: true, backgroundColor: '#07080B', title: 'Hangar', icon: ICON, skipTaskbar: false,
-    webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+    webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, autoplayPolicy: 'no-user-gesture-required' }
   });
   splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'), { query: { v: app.getVersion() } });
   splash.once('ready-to-show', () => splash?.show());
@@ -411,6 +413,8 @@ async function startWithSplash() {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   splashProgress(100, 'Prêt !');
   await new Promise((r) => setTimeout(r, 350));
+  // on attend la fin du clip (30 s maximum, au cas où la vidéo resterait bloquée)
+  await within(introDone, 30000);
   if (splash && !splash.isDestroyed()) splash.webContents.send('splash-done');
   await new Promise((r) => setTimeout(r, 650)); // décollage de la fusée
   if (win && !win.isDestroyed()) { win.show(); win.focus(); }
