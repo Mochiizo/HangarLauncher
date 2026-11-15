@@ -5,7 +5,7 @@ const $ = (sel) => document.querySelector(sel);
 const state = { games: [], status: {}, week: null, updates: {}, running: new Set(), launching: {}, filter: 'all', source: 'all', sort: 'recent', query: '', selected: null, view: 'home' };
 
 // ---------- Formatage ----------
-const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const nf = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
 const hours = (m) => nf.format(m / 60);
 function duration(m) {
   if (m == null) return 'Durée inconnue';
@@ -22,9 +22,9 @@ function relative(ts) {
   if (days < 14) return `Il y a ${days} jours`;
   if (days < 60) return `Il y a ${Math.round(days / 7)} semaines`;
   if (days < 365) return `Il y a ${Math.round(days / 30)} mois`;
-  return new Date(ts).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+  return new Date(ts).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' });
 }
-const size = (b) => (b ? `${nf.format(b / 1e9)} Go` : '—');
+const size = (b) => (b ? `${nf.format(b / 1e9)} ${t('Go')}` : '—');
 const mono = (t) => t.replace(/[^\p{L}\p{N} ]/gu, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 function hue(key) { let h = 0; for (const c of key) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 
@@ -100,7 +100,7 @@ function visibleGames() {
 const selectedGame = () => state.games.find((g) => g.key === state.selected) || visibleGames()[0] || state.games[0];
 
 function select(key) {
-  const wasHome = state.view === 'home';
+  const wasHome = state.view !== 'library';
   if (wasHome) setView('library', false);
   if (state.selected === key && !wasHome) return;
   state.selected = key;
@@ -305,11 +305,11 @@ const achCache = new Map();
 const ACH_MAX = 12;
 
 function achDate(t) {
-  return new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(t).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
 }
 function achPercent(p) {
   if (p == null) return null;
-  return `${p < 10 ? p.toFixed(1).replace('.', ',') : Math.round(p)} % des joueurs`;
+  return t('{p} % des joueurs', { p: p < 10 ? nf.format(Math.round(p * 10) / 10) : Math.round(p) });
 }
 // Icône d'un succès : plusieurs adresses possibles (CDN de Steam) ; si aucune ne répond, un trophée
 const TROPHY = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M9 20h6M10 17h4"/></svg>';
@@ -419,7 +419,7 @@ function paintActivity(g, data) {
   const items = activityState.expanded ? data.items : data.items.slice(0, 4);
   const groups = [];
   for (const n of items) {
-    const label = new Date(n.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: new Date(n.date).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+    const label = new Date(n.date).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: new Date(n.date).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
     if (groups.at(-1)?.label === label) groups.at(-1).items.push(n); else groups.push({ label, items: [n] });
   }
   const nodes = groups.map((grp) => el('div', { class: 'news-group' }, el('div', { class: 'news-date' }, grp.label), ...grp.items.map(activityItem)));
@@ -458,8 +458,8 @@ function renderWeek(sel) {
     const isToday = d.date === today;
     return el('div', { class: 'day' + (isToday ? ' today' : '') },
       el('div', { class: 'day-head' },
-        el('span', { class: 'd' }, isToday ? "Aujourd'hui" : date.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')),
-        el('span', { class: 'n' }, date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '')),
+        el('span', { class: 'd' }, isToday ? "Aujourd'hui" : date.toLocaleDateString(LOCALE, { weekday: 'short' }).replace('.', '')),
+        el('span', { class: 'n' }, date.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' }).replace('.', '')),
         el('span', { class: 'muted small' }, sessions.length ? (mins ? duration(mins) : `${sessions.length} jeu${sessions.length > 1 ? 'x' : ''}`) : 'Pas joué')),
       el('div', { class: 'day-sessions' }, sessions.length ? sessions.map((s) => {
         const g = games.get(s.gameKey);
@@ -597,6 +597,7 @@ function render() {
   renderSidebar(list);
   renderTabs();
   if (state.view === 'home') { renderHome(); setAmbience(recentGames()[0] || sel); }
+  else if (state.view === 'stats') { renderStatsView(); setAmbience(recentGames()[0] || sel); }
   else setAmbience(sel);
   renderHero(sel);
   renderStats(sel);
@@ -651,6 +652,25 @@ function askRemove(g) {
 
 $('#add-game').addEventListener('click', () => addGame());
 
+// ---------- Barre latérale de la bibliothèque (masquable, choix mémorisé) ----------
+function setSidebar(collapsed, animate = true) {
+  const layout = $('.layout');
+  layout.classList.toggle('side-anim', animate);
+  layout.classList.toggle('side-collapsed', collapsed);
+  $('#side-close').setAttribute('aria-expanded', String(!collapsed));
+  $('#side-open').setAttribute('aria-expanded', String(!collapsed));
+  try { localStorage.setItem('hangar.sidebarCollapsed', collapsed ? '1' : '0'); } catch { /* stockage indisponible */ }
+  if (!collapsed && animate) setTimeout(() => $('#search').focus({ preventScroll: true }), 300);
+}
+$('#side-close').addEventListener('click', () => setSidebar(true));
+$('#side-open').addEventListener('click', () => setSidebar(false));
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'b' && state.view === 'library' && !document.querySelector('dialog[open]')) {
+    e.preventDefault(); setSidebar(!$('.layout').classList.contains('side-collapsed'));
+  }
+});
+try { if (localStorage.getItem('hangar.sidebarCollapsed') === '1') setSidebar(true, false); } catch { /* ignoré */ }
+
 // ---------- Désinstallation ----------
 function askUninstall(g) {
   const d = $('#confirm-uninstall');
@@ -690,15 +710,16 @@ function watchUninstall(key) {
 function renderTabs() {
   document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-current', String(t.dataset.view === state.view)));
   $('#home').hidden = state.view !== 'home';
-  // Sur l'accueil, la liste des jeux à gauche disparaît : la page prend toute la largeur
-  $('.layout').classList.toggle('home-mode', state.view === 'home');
+  $('#statsview').hidden = state.view !== 'stats';
+  // Sur l'accueil et les statistiques, la liste des jeux à gauche disparaît : la page prend toute la largeur
+  $('.layout').classList.toggle('home-mode', state.view !== 'library');
   $('#library').hidden = state.view !== 'library';
 }
 function setView(v, doRender = true) {
   if (state.view === v) return;
   state.view = v;
   renderTabs();
-  const box = v === 'home' ? $('#home') : $('#library');
+  const box = v === 'home' ? $('#home') : v === 'stats' ? $('#statsview') : $('#library');
   box.classList.remove('view-enter'); void box.offsetWidth; box.classList.add('view-enter');
   if (doRender) render();
 }
@@ -798,7 +819,7 @@ function renderHome() {
   nodes.push(section('Ta semaine', el('div', { class: 'stats' },
     stat('Temps de jeu', w.total ? duration(w.total) : '—', w.gamesCount ? `${w.gamesCount} jeu${w.gamesCount > 1 ? 'x' : ''} lancé${w.gamesCount > 1 ? 's' : ''}` : null),
     stat('Jeu le plus joué', w.top?.game?.title || '—', w.top?.mins ? duration(w.top.mins) : null),
-    stat('Journée la plus active', w.best ? new Date(w.best.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' }) : '—', w.best ? duration(w.best.mins) : null),
+    stat('Journée la plus active', w.best ? new Date(w.best.date + 'T12:00:00').toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric' }) : '—', w.best ? duration(w.best.mins) : null),
     stat('Jeux installés', String(installed.length), disk ? `${size(disk)} sur le disque` : null))));
 
   // Mises à jour
@@ -878,7 +899,7 @@ function renderCalendar(box, d, reveal = false) {
     weeks.push(days);
   }
   const weekLabel = (days) => {
-    const f = (x) => x.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
+    const f = (x) => x.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' }).replace('.', '');
     return `${f(days[0])} – ${f(days[6])}`;
   };
 
@@ -886,7 +907,7 @@ function renderCalendar(box, d, reveal = false) {
     const date = dt.toLocaleDateString('sv-SE');
     const list = byDate.get(date) || [];
     const isToday = date === today;
-    const label = isToday ? "Aujourd'hui" : `${dt.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')} ${dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}`;
+    const label = isToday ? "Aujourd'hui" : `${dt.toLocaleDateString(LOCALE, { weekday: 'short' }).replace('.', '')} ${dt.toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' })}`;
     return el('div', { class: 'cal-col' + (isToday ? ' today' : '') + (date < today ? ' past' : '') + (list.length ? '' : ' no-release'), 'data-date': date },
       el('div', { class: 'cal-day' }, el('span', {}, label)),
       loading ? el('div', { class: 'cal-items' }, el('div', { class: 'cal-scroll' }, [0, 1].map(() => el('span', { class: 'cal-skel', 'aria-hidden': 'true' }))))
@@ -1023,8 +1044,442 @@ async function fillHomeNews(box, list) {
   box.replaceChildren(...homeNews.items.map((n) => el(n.url ? 'a' : 'div', { class: 'news-card', href: n.url || null, target: n.url ? '_blank' : null, rel: n.url ? 'noreferrer' : null },
     el('span', { class: 'news-card-img' }, n.image ? el('img', { src: n.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : null, art(n.game, ['header', 'hero', 'cover'])),
     el('span', { class: 'news-card-body' },
-      el('span', { class: 'news-src' }, `${n.game.title} · ${new Date(n.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`),
+      el('span', { class: 'news-src' }, `${n.game.title} · ${new Date(n.date).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })}`),
       el('span', { class: 'news-card-title' }, n.title)))));
+}
+
+// ---------- Statistiques ----------
+const statsState = { period: 'month', history: null, ach: new Map() };
+const PERIODS = [['week', 'Semaine'], ['month', 'Mois'], ['year', 'Année'], ['all', 'Depuis le début']];
+const PLAT_COLORS = { steam: '#5B95FF', epic: '#E8B04B', ea: '#F2706B', ubisoft: '#9AA4FF', xbox: '#5FD39A', gog: '#C77DFF', custom: '#8FA3B8' };
+const dk = (d) => d.toLocaleDateString('sv-SE');
+const dayAt = (d, n = 0) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12);
+const fromKey = (k) => new Date(k + 'T12:00:00');
+const pcs = (x) => (LANG === 'en' ? `${x}%` : `${x} %`);
+const sumVals = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+const STAT_ICONS = {
+  clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  avg: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>',
+  pad: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M8 12h3M9.5 10.5v3M15 11.5h.01M17 13.5h.01"/></svg>',
+  flame: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 1.5-4 .5 1.5 1.5 2 2 2C11 7 11 5 12 3z"/></svg>',
+  trophy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8"/></svg>'
+};
+
+function periodRange(p) {
+  const today = dayAt(new Date());
+  if (p === 'week') return { start: dayAt(today, -6), end: today };
+  if (p === 'month') return { start: dayAt(today, -29), end: today };
+  if (p === 'year') return { start: new Date(today.getFullYear(), today.getMonth() - 11, 1, 12), end: today };
+  return { start: null, end: today };
+}
+
+// Toutes les statistiques d'une période, à partir de l'historique jour par jour et de la bibliothèque
+function computeStats(p) {
+  const H = statsState.history?.days || {};
+  const since = statsState.history?.since || Object.keys(H).sort()[0] || null;
+  const games = byKey();
+  const r = periodRange(p);
+  const startKey = r.start ? dk(r.start) : '0000-00-00', endKey = dk(r.end);
+  const perGame = new Map(), perDay = new Map(), gameDays = new Map();
+  for (const [d, m] of Object.entries(H)) {
+    if (d < startKey || d > endKey) continue;
+    let tot = 0;
+    for (const [k, v] of Object.entries(m)) {
+      if (!games.has(k) || !(v > 0)) continue;
+      perGame.set(k, (perGame.get(k) || 0) + v); gameDays.set(k, (gameDays.get(k) || 0) + 1); tot += v;
+    }
+    if (tot > 0) perDay.set(d, tot);
+  }
+  const lifetime = state.games.reduce((t, g) => t + (g.minutes || 0), 0);
+  const tracked = [...perDay.values()].reduce((a, b) => a + b, 0);
+  // « Depuis le début » : le temps total des launchers (bien plus long que le suivi de Hangar)
+  const all = p === 'all';
+  const gameTotals = all ? new Map(state.games.filter((g) => g.minutes > 0).map((g) => [g.key, g.minutes])) : perGame;
+  const total = all ? lifetime : tracked;
+
+  // période précédente de même durée, seulement si le suivi la couvre
+  let prevTotal = null;
+  if (r.start && since) {
+    const len = Math.round((r.end - r.start) / 86400000) + 1;
+    const ps = p === 'year' ? new Date(r.start.getFullYear() - 1, r.start.getMonth(), 1, 12) : dayAt(r.start, -len);
+    const pe = dayAt(r.start, -1);
+    if (since <= dk(ps)) prevTotal = Object.entries(H).filter(([d]) => d >= dk(ps) && d <= dk(pe)).reduce((t, [, m]) => t + sumVals(m), 0);
+  }
+
+  // série de jours d'affilée (en cours : jusqu'à aujourd'hui ou hier) et record
+  const played = new Set(Object.entries(H).filter(([, m]) => sumVals(m) > 0).map(([d]) => d));
+  let streak = 0;
+  for (let d = played.has(dk(new Date())) ? dayAt(new Date()) : dayAt(new Date(), -1); played.has(dk(d)); d = dayAt(d, -1)) streak++;
+  let best = 0, run = 0, prev = null;
+  for (const d of [...played].sort()) { run = prev && dk(dayAt(fromKey(prev), 1)) === d ? run + 1 : 1; best = Math.max(best, run); prev = d; }
+
+  // jours de la semaine
+  const wd = Array.from({ length: 7 }, () => ({ mins: 0, n: 0 }));
+  const from = r.start && since && since > startKey ? fromKey(since) : r.start || (since ? fromKey(since) : null);
+  if (from) for (let d = dayAt(from); dk(d) <= endKey; d = dayAt(d, 1)) { const i = (d.getDay() + 6) % 7; wd[i].n++; wd[i].mins += perDay.get(dk(d)) || 0; }
+  const favDay = wd.map((x, i) => ({ i, avg: x.n ? x.mins / x.n : 0, mins: x.mins })).sort((a, b) => b.mins - a.mins)[0];
+
+  // première apparition de chaque jeu dans l'historique (nouveautés)
+  const firstSeen = new Map();
+  for (const d of Object.keys(H).sort()) for (const k of Object.keys(H[d])) if (!firstSeen.has(k)) firstSeen.set(k, d);
+  const settle = since ? dk(dayAt(fromKey(since), 7)) : '9999';
+  const discoveries = [...firstSeen.entries()].filter(([k, d]) => d > settle && games.has(k)).sort((a, b) => b[1].localeCompare(a[1]));
+  const newInPeriod = discoveries.filter(([, d]) => d >= startKey).length;
+
+  const bigDay = [...perDay.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+  const bigDayGame = bigDay ? Object.entries(H[bigDay[0]]).filter(([k]) => games.has(k)).sort((a, b) => b[1] - a[1])[0]?.[0] : null;
+  const loyal = [...gameDays.entries()].sort((a, b) => b[1] - a[1] || (perGame.get(b[0]) || 0) - (perGame.get(a[0]) || 0))[0] || null;
+  const spanDays = from ? Math.round((r.end - dayAt(from)) / 86400000) + 1 : 0;
+
+  // plateformes
+  const plats = new Map();
+  for (const [k, m] of gameTotals) { const s = games.get(k)?.source || 'custom'; plats.set(s, (plats.get(s) || 0) + m); }
+
+  return {
+    p, r, since, H, games, perDay, perGame, gameTotals, total, prevTotal, lifetime,
+    daysPlayed: perDay.size, avg: perDay.size ? tracked / perDay.size : 0,
+    gamesCount: (all ? gameTotals : perGame).size, newInPeriod, streak, best,
+    favDay, bigDay, bigDayGame, loyal, spanDays, discovery: discoveries[0] || null,
+    top: [...gameTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
+    plats: [...plats.entries()].sort((a, b) => b[1] - a[1])
+  };
+}
+
+const fmtDay = (k, opts = { weekday: 'long', day: 'numeric', month: 'short' }) => fromKey(k).toLocaleDateString(LOCALE, opts).replace('.', '');
+const hm = (m) => duration(Math.round(m));
+const statTip = (date, mins, H, games) => {
+  const names = Object.entries(H[date] || {}).filter(([k]) => games.has(k)).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => games.get(k).title);
+  return [fmtDay(date, { weekday: 'short', day: 'numeric', month: 'short' }), mins ? hm(mins) : t('Pas joué'), names.join(', ')].filter(Boolean).join(' · ');
+};
+
+// Colonnes du graphique : un jour (semaine, mois) ou un mois (année, depuis le début)
+function statsCols(s) {
+  const cols = [];
+  if (s.p === 'week' || s.p === 'month') {
+    const today = dk(new Date());
+    for (let d = dayAt(s.r.start); d <= s.r.end; d = dayAt(d, 1)) {
+      const k = dk(d), m = s.perDay.get(k) || 0, we = d.getDay() === 0 || d.getDay() === 6;
+      const label = s.p === 'week' ? d.toLocaleDateString(LOCALE, { weekday: 'short' }).replace('.', '')
+        : (cols.length % 5 === 0 || k === today) ? String(d.getDate()) : '';
+      cols.push({ m, label, cls: k === today ? 'today' : we ? 'we' : '', tip: statTip(k, m, s.H, s.games) });
+    }
+  } else {
+    const end = new Date(s.r.end.getFullYear(), s.r.end.getMonth(), 1, 12);
+    let start = s.p === 'year' ? new Date(end.getFullYear(), end.getMonth() - 11, 1, 12) : s.since ? new Date(fromKey(s.since).getFullYear(), fromKey(s.since).getMonth(), 1, 12) : end;
+    if ((end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() > 23) start = new Date(end.getFullYear(), end.getMonth() - 23, 1, 12);
+    for (let d = start; d <= end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1, 12)) {
+      const prefix = dk(d).slice(0, 7);
+      const m = Object.entries(s.H).filter(([k]) => k.startsWith(prefix)).reduce((t2, [, v]) => t2 + Object.entries(v).filter(([g]) => s.games.has(g)).reduce((a, [, x]) => a + x, 0), 0);
+      const name = d.toLocaleDateString(LOCALE, { month: 'short', year: d.getMonth() === 0 || d.getTime() === start.getTime() ? '2-digit' : undefined }).replace('.', '');
+      cols.push({ m, label: name, cls: prefix === dk(new Date()).slice(0, 7) ? 'today' : '', tip: `${d.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' })} · ${m ? hm(m) : t('Pas joué')}` });
+    }
+  }
+  return cols;
+}
+
+// Chiffre qui défile de l'ancienne à la nouvelle valeur
+const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+function tween(node, to, fmt, ms = 650) {
+  const from = Number(node._val) || 0;
+  node._val = to;
+  cancelAnimationFrame(node._raf);
+  if (from === to || matchMedia('(prefers-reduced-motion: reduce)').matches) { node.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  const step = (now) => {
+    const x = Math.min(1, (now - t0) / ms);
+    node.textContent = fmt(x === 1 ? to : from + (to - from) * easeOut(x));
+    if (x < 1) node._raf = requestAnimationFrame(step);
+  };
+  node._raf = requestAnimationFrame(step);
+}
+// Remplace un contenu en fondu (sortie rapide, entrée en cascade)
+function swap(box, nodes, animate) {
+  if (!animate) { box.replaceChildren(...nodes); return; }
+  clearTimeout(box._swap);
+  box.classList.add('sv-out');
+  box._swap = setTimeout(() => { box.replaceChildren(...nodes); box.classList.remove('sv-out'); box.classList.remove('sv-in'); void box.offsetWidth; box.classList.add('sv-in'); }, 140);
+}
+
+function paintBars(ui, s, animate) {
+  const cols = statsCols(s);
+  const daily = s.p === 'week' || s.p === 'month';
+  ui.barsTitle.textContent = daily ? t('Temps de jeu par jour') : t('Temps de jeu par mois');
+  ui.legend.hidden = !daily;
+  ui.since.textContent = s.since && s.r.start && s.since > dk(s.r.start) ? t('suivi depuis le {d}', { d: fmtDay(s.since, { day: 'numeric', month: 'short' }) }) : '';
+  const max = Math.max(60, ...cols.map((c) => c.m));
+  const h = (c) => `${Math.max(c.m ? 3 : 1.5, (c.m / max) * 100)}%`;
+  const same = ui.bars.children.length === cols.length;
+  ui.bars.style.setProperty('--n', cols.length);
+  ui.axis.style.setProperty('--n', cols.length);
+  if (same) {
+    // même nombre de colonnes : les barres changent de hauteur en douceur
+    cols.forEach((c, i) => { const b = ui.bars.children[i]; b.className = 'sv-bar ' + c.cls; b.style.height = h(c); b.dataset.tip = c.tip; b.setAttribute('aria-label', c.tip); });
+  } else {
+    ui.bars.replaceChildren(...cols.map((c, i) => el('div', { class: 'sv-bar ' + c.cls + (animate ? ' grow' : ''), style: `height:${h(c)};--i:${i}`, 'data-tip': c.tip, tabindex: '0', 'aria-label': c.tip })));
+  }
+  ui.axis.replaceChildren(...cols.map((c) => el('span', {}, c.label)));
+}
+
+function paintDonut(ui, s, animate) {
+  const tot = s.plats.reduce((a, [, m]) => a + m, 0);
+  ui.donutWrap.hidden = !tot;
+  ui.donutEmpty.hidden = !!tot;
+  tween(ui.donutTotal, tot / 60, (v) => `${Math.round(v)} h`);
+  // un arc par plateforme, gardé d'une période à l'autre : il glisse vers sa nouvelle taille
+  let off = 25;
+  const gap = s.plats.length > 1 ? 1.2 : 0;
+  const seen = new Set();
+  for (const [src, m] of s.plats) {
+    seen.add(src);
+    let c = ui.arcs.get(src);
+    if (!c) {
+      c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      for (const [k, v] of Object.entries({ cx: 21, cy: 21, r: 15.9, fill: 'none', stroke: PLAT_COLORS[src] || '#8FA3B8', 'stroke-width': 5 })) c.setAttribute(k, v);
+      c.style.strokeDasharray = `0 100`; c.style.strokeDashoffset = off;
+      ui.ring.append(c); ui.arcs.set(src, c);
+      void c.getBoundingClientRect();
+    }
+    const pc = (m / tot) * 100;
+    c.style.strokeDasharray = `${Math.max(pc - gap, .4)} ${100 - pc + gap}`;
+    c.style.strokeDashoffset = off;
+    off -= pc;
+  }
+  for (const [src, c] of ui.arcs) if (!seen.has(src)) { c.style.strokeDasharray = '0 100'; }
+  swap(ui.plat, s.plats.map(([src, m], i) => el('li', { style: `--i:${i}` },
+    el('span', { class: 'dot', style: `background:${PLAT_COLORS[src] || '#8FA3B8'}` }),
+    el('span', {}, SOURCES[src]?.long || src),
+    el('span', { class: 'h' }, hm(m), el('em', {}, pcs(Math.round((m / tot) * 100)))))), animate);
+}
+
+function topRows(s) {
+  const max = s.top[0]?.[1] || 1;
+  if (!s.top.length) return [el('p', { class: 'muted small' }, t('Aucun jeu lancé sur cette période.'))];
+  return s.top.map(([k, m], i) => {
+    const g = s.games.get(k);
+    return el('button', { type: 'button', class: 'sv-tg' + (i === 0 ? ' first' : ''), style: `--i:${i}`, onclick: () => select(k) },
+      el('span', { class: 'rk' }, String(i + 1)),
+      el('span', { class: 'cv' }, art(g, ['header', 'hero', 'cover'])),
+      el('span', { class: 'nm' }, el('b', {}, el('span', { class: 'ttl' }, g.title), el('span', { class: 'src' }, SOURCES[g.source]?.chip || 'PC')),
+        el('span', { class: 'sv-track' }, el('span', { style: `--w:${(m / max) * 100}%` }))),
+      el('span', { class: 'hh' }, hm(m), el('small', {}, pcs(Math.round((m / (s.total || 1)) * 100)))));
+  });
+}
+
+function recordItems(s, ach) {
+  const rec = (k, v, sub, hl) => el('div', { class: 'sv-rec' + (hl ? ' hl' : '') }, el('span', { class: 'k' }, k), el('span', { class: 'v' }, v), sub ? el('span', { class: 's' }, sub) : null);
+  const g = (k) => s.games.get(k)?.title || '—';
+  const days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+  const items = [];
+  if (s.bigDay) items.push(rec(t('Plus grosse journée'), hm(s.bigDay[1]), `${fmtDay(s.bigDay[0])}${s.bigDayGame ? ' · ' + g(s.bigDayGame) : ''}`, true));
+  if (s.favDay?.mins) items.push(rec(t('Jour préféré'), t(days[s.favDay.i]), t('{d} en moyenne', { d: hm(s.favDay.avg) })));
+  if (s.loyal) items.push(rec(t('Jeu le plus fidèle'), g(s.loyal[0]), t('joué {n} jours sur {m}', { n: s.loyal[1], m: s.spanDays || s.daysPlayed })));
+  if (s.discovery) items.push(rec(t('Dernière découverte'), g(s.discovery[0]), t('1re session le {d}', { d: fmtDay(s.discovery[1], { day: 'numeric', month: 'short' }) })));
+  if (ach?.rarest) items.push(rec(t('Succès le plus rare'), ach.rarest.name, `${g(ach.rarest.gameKey)} · ${achPercent(ach.rarest.percent)}`));
+  items.push(rec(t('Depuis le début'), `${nf.format(Math.round(s.lifetime / 60))} h`, t('sur tous tes launchers')));
+  return items.map((x, i) => { x.style.setProperty('--i', i); return x; });
+}
+
+function statsHeat(s) {
+  const weeks = 26;
+  const today = dayAt(new Date());
+  const monday = dayAt(today, -((today.getDay() + 6) % 7) - (weeks - 1) * 7);
+  const cells = [], months = [];
+  let lastMonth = -1, playedDays = 0;
+  for (let w = 0; w < weeks; w++) {
+    const wStart = dayAt(monday, w * 7);
+    if (wStart.getMonth() !== lastMonth) { months.push({ w, label: wStart.toLocaleDateString(LOCALE, { month: 'short' }).replace('.', '') }); lastMonth = wStart.getMonth(); }
+    for (let d = 0; d < 7; d++) {
+      const day = dayAt(monday, w * 7 + d), k = dk(day);
+      const m = Object.entries(s.H[k] || {}).filter(([g]) => s.games.has(g)).reduce((a, [, v]) => a + v, 0);
+      if (m) playedDays++;
+      const lvl = !m ? '' : m < 60 ? ' l1' : m < 120 ? ' l2' : m < 240 ? ' l3' : ' l4';
+      const future = day > today, before = s.since && k < s.since;
+      cells.push(el('span', { class: 'sv-cell' + lvl + (future ? ' future' : '') + (before ? ' before' : ''), title: future ? null : statTip(k, m, s.H, s.games), style: `grid-column:${w + 1};grid-row:${d + 1}` }));
+    }
+  }
+  const dayNames = [1, 3, 5, 7].map((i) => ({ i, n: dayAt(monday, i - 1).toLocaleDateString(LOCALE, { weekday: 'short' }).replace('.', '') }));
+  return el('div', { class: 'sv-panel' },
+    el('div', { class: 'sv-panel-head' }, el('h2', {}, t("Calendrier d'activité")),
+      el('span', { class: 'muted small' }, playedDays > 1 ? t('6 derniers mois · {n} jours joués', { n: playedDays }) : t('6 derniers mois · {n} jour joué', { n: playedDays }))),
+    el('div', { class: 'sv-heat' },
+      el('div', { class: 'sv-months', style: `--w:${weeks}` }, months.map((m) => el('span', { style: `grid-column:${m.w + 1}` }, m.label))),
+      el('div', { class: 'sv-days' }, dayNames.map((d) => el('span', { style: `grid-row:${d.i}` }, d.n))),
+      el('div', { class: 'sv-cells', style: `--w:${weeks}` }, cells)),
+    el('div', { class: 'sv-heat-foot' },
+      el('span', {}, s.since ? t('Suivi par Hangar depuis le {d}', { d: fmtDay(s.since, { day: 'numeric', month: 'long', year: 'numeric' }) }) : ''),
+      el('span', { class: 'sv-scale' }, t('Moins'), ...['', ' l1', ' l2', ' l3', ' l4'].map((l) => el('span', { class: 'sv-cell' + l })), t('Plus'))));
+}
+
+function statsLibrary() {
+  const games = state.games;
+  const installed = games.filter((g) => g.installed);
+  const disk = installed.reduce((a, g) => a + (g.sizeBytes || 0), 0);
+  const heavy = installed.filter((g) => g.sizeBytes).sort((a, b) => b.sizeBytes - a.sizeBytes)[0];
+  const never = games.filter((g) => !g.minutes && !g.lastPlayed);
+  const neverInstalled = never.filter((g) => g.installed).length;
+  const platforms = new Set(games.map((g) => g.source)).size;
+  const pc = games.length ? Math.round((never.length / games.length) * 100) : 0;
+  const kpi = (k, v, d) => el('div', { class: 'sv-kpi' }, el('span', { class: 'k' }, k), el('span', { class: 'v' }, v), d ? el('span', { class: 'd' }, d) : null);
+  return el('section', { class: 'sv-section' },
+    el('h2', { class: 'sv-h2' }, t('Ta bibliothèque')),
+    el('div', { class: 'sv-lib' },
+      kpi(t('Jeux possédés'), nf.format(games.length), platforms > 1 ? t('sur {n} plateformes', { n: platforms }) : t('sur {n} plateforme', { n: platforms })),
+      kpi(t('Installés'), nf.format(installed.length), disk ? t('{s} sur le disque', { s: size(disk) }) : null),
+      kpi(t('Le plus lourd'), heavy ? heavy.title : '—', heavy ? size(heavy.sizeBytes) : null),
+      kpi(t('Jamais lancés'), nf.format(never.length), t('{p} % de la bibliothèque', { p: pc })),
+      el('div', { class: 'sv-kpi sv-backlog' },
+        el('span', { class: 'k' }, t('Jeux en attente')),
+        el('span', { class: 'sv-track big' }, el('span', { style: `width:${pc}%` })),
+        el('p', {}, neverInstalled ? t('{n} installés sont prêts à jouer, sans jamais avoir été lancés.', { n: neverInstalled }) : t('Aucun jeu installé en attente : tu as tout essayé !')))));
+}
+
+async function loadStatsAchievements(s) {
+  const keys = s.top.map(([k]) => k).concat([...s.gameTotals.keys()]).filter((k, i, a) => a.indexOf(k) === i && s.games.get(k)?.source === 'steam').slice(0, 15);
+  const since = s.r.start ? new Date(s.r.start).setHours(0, 0, 0, 0) : 0;
+  const id = `${s.p}|${keys.join()}`;
+  const hit = statsState.ach.get(id);
+  if (hit && (hit.loading || Date.now() - hit.at < 5 * 60000)) return hit.loading || hit.data;
+  const loading = (api.statsAchievements ? api.statsAchievements(keys, since) : Promise.resolve({ status: 'none' })).catch(() => ({ status: 'error' }));
+  statsState.ach.set(id, { loading });
+  const data = await loading;
+  statsState.ach.set(id, { data, at: Date.now() });
+  return data;
+}
+
+// L'onglet se construit une fois ; changer de période ne met à jour que les données, avec des transitions
+let statsUI = null;
+
+function buildStatsView(s) {
+  const kpi = (icon, k) => {
+    const v = el('span', { class: 'v' }), d = el('span', { class: 'd' }, ' ');
+    return { box: el('div', { class: 'sv-kpi' }, el('span', { class: 'k' }, svg(STAT_ICONS[icon]), k), v, d), v, d };
+  };
+  const ui = { arcs: new Map() };
+  ui.kicker = el('div', { class: 'kicker sv-fade' });
+  ui.pill = el('span', { class: 'sv-seg-pill', 'aria-hidden': 'true' });
+  ui.segBtns = PERIODS.map(([id, label]) => el('button', { type: 'button', 'data-p': id, onclick: () => setStatsPeriod(id) }, t(label)));
+  ui.seg = el('div', { class: 'sv-seg', role: 'group', 'aria-label': t('Période') }, ui.pill, ui.segBtns);
+  ui.k = { time: kpi('clock', t('Temps de jeu')), avg: kpi('avg', t('Moyenne par jour')), games: kpi('pad', t('Jeux lancés')), streak: kpi('flame', t('Série en cours')), ach: kpi('trophy', t('Succès débloqués')) };
+
+  ui.barsTitle = el('h2');
+  ui.legend = el('div', { class: 'sv-legend' }, el('span', {}, el('i', { style: 'background:rgba(255,255,255,.3)' }), t('Semaine')), el('span', {}, el('i', { style: 'background:rgba(232,176,75,.55)' }), t('Week-end')), el('span', {}, el('i', { style: 'background:#F2B54A' }), t("Aujourd'hui")));
+  ui.since = el('span', { class: 'muted small sv-since' });
+  ui.bars = el('div', { class: 'sv-bars' });
+  ui.axis = el('div', { class: 'sv-axis' });
+
+  ui.ring = svg('<svg width="150" height="150" viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="15.9" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="5"/></svg>');
+  ui.donutTotal = el('b');
+  ui.plat = el('ul', { class: 'sv-plat sv-fade' });
+  ui.donutWrap = el('div', { class: 'sv-donut-wrap' }, el('div', { class: 'sv-donut' }, ui.ring, el('div', { class: 'c' }, el('div', {}, ui.donutTotal, el('span', {}, t('au total'))))), ui.plat);
+  ui.donutEmpty = el('p', { class: 'muted small' }, t('Aucun temps de jeu sur cette période.'));
+
+  ui.top = el('div', { class: 'sv-top sv-fade' });
+  ui.recs = el('div', { class: 'sv-recs sv-fade' });
+  ui.data = [
+    el('section', { class: 'sv-row2' },
+      el('div', { class: 'sv-panel' }, el('div', { class: 'sv-panel-head' }, ui.barsTitle, ui.since, ui.legend), ui.bars, ui.axis),
+      el('div', { class: 'sv-panel' }, el('div', { class: 'sv-panel-head' }, el('h2', {}, t('Plateformes'))), ui.donutWrap, ui.donutEmpty)),
+    el('section', { class: 'sv-row2b' },
+      el('div', { class: 'sv-panel' }, el('div', { class: 'sv-panel-head' }, el('h2', {}, t('Jeux les plus joués')), el('span', { class: 'muted small' }, t('part du temps de jeu'))), ui.top),
+      el('div', { class: 'sv-panel' }, el('div', { class: 'sv-panel-head' }, el('h2', {}, t('Tes records'))), ui.recs))
+  ];
+  ui.emptyText = el('p', { class: 'muted' });
+  ui.empty = el('div', { class: 'sv-panel sv-empty' }, el('h2', {}, t('Pas encore de temps de jeu sur cette période')), ui.emptyText,
+    el('button', { type: 'button', class: 'pill', onclick: () => setStatsPeriod('all') }, t('Voir depuis le début')));
+  ui.heat = statsHeat(s);
+  ui.lib = statsLibrary();
+  ui.root = [
+    el('div', { class: 'sv-head' }, el('div', {}, ui.kicker, el('h1', {}, t('Statistiques'))), ui.seg),
+    el('section', { class: 'sv-kpis' }, Object.values(ui.k).map((x) => x.box)),
+    ui.empty, ...ui.data, ui.heat, ui.lib
+  ];
+  return ui;
+}
+
+function placePill(ui, animate) {
+  const b = ui.segBtns.find((x) => x.getAttribute('aria-pressed') === 'true');
+  if (!b || !b.offsetWidth) return;
+  ui.pill.classList.toggle('still', !animate);
+  ui.pill.style.width = `${b.offsetWidth}px`;
+  ui.pill.style.transform = `translateX(${b.offsetLeft - 4}px)`;
+}
+
+function applyStats(ui, s, animate) {
+  const kick = s.p === 'week' ? t('7 derniers jours') : s.p === 'month' ? t('30 derniers jours') : s.p === 'year' ? t('12 derniers mois') : t('Toute ta bibliothèque');
+  swap(ui.kicker, [kick], animate);
+  ui.segBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.p === s.p)));
+  requestAnimationFrame(() => placePill(ui, animate));
+
+  // chiffres clés
+  const delta = s.prevTotal ? Math.round(((s.total - s.prevTotal) / s.prevTotal) * 100) : null;
+  const prevLabel = { week: t('vs la semaine d’avant'), month: t('vs les 30 jours d’avant'), year: t('vs l’année d’avant') }[s.p];
+  const dash = (f) => (v) => (v >= .5 ? f(v) : '—');
+  tween(ui.k.time.v, s.total, dash(hm));
+  ui.k.time.d.replaceChildren(delta != null && s.total ? el('span', {}, el('span', { class: delta >= 0 ? 'up' : 'down' }, `${delta >= 0 ? '▲' : '▼'} ${pcs(Math.abs(delta))}`), ` ${prevLabel}`) : s.p === 'all' ? t('sur tous tes launchers') : ' ');
+  tween(ui.k.avg.v, s.avg, dash(hm));
+  ui.k.avg.d.textContent = s.daysPlayed ? (s.daysPlayed > 1 ? t('sur {n} jours joués', { n: s.daysPlayed }) : t('sur {n} jour joué', { n: s.daysPlayed })) : ' ';
+  tween(ui.k.games.v, s.gamesCount, (v) => nf.format(Math.round(v)));
+  ui.k.games.d.textContent = s.newInPeriod ? (s.newInPeriod > 1 ? t('dont {n} nouveaux', { n: s.newInPeriod }) : t('dont {n} nouveau', { n: s.newInPeriod })) : ' ';
+  tween(ui.k.streak.v, s.streak, (v) => { const n = Math.round(v); return n > 1 ? t('{n} jours', { n }) : t('{n} jour', { n }); });
+  ui.k.streak.d.textContent = s.best ? t('record : {n}', { n: s.best > 1 ? t('{n} jours', { n: s.best }) : t('{n} jour', { n: s.best }) }) : ' ';
+
+  // période sans données : un message à la place des graphiques
+  const noData = !s.daysPlayed && s.p !== 'all';
+  ui.empty.hidden = !noData;
+  ui.data.forEach((x) => { x.hidden = noData; });
+  if (noData) {
+    ui.emptyText.textContent = s.since
+      ? t('Hangar compte ton temps de jeu jour par jour depuis le {d}. Les graphiques se remplissent au fil de tes parties.', { d: fmtDay(s.since, { day: 'numeric', month: 'long' }) })
+      : t('Hangar commence à compter ton temps de jeu jour par jour. Les graphiques se remplissent au fil de tes parties.');
+  } else {
+    paintBars(ui, s, animate);
+    paintDonut(ui, s, animate);
+    swap(ui.top, topRows(s), animate);
+    swap(ui.recs, recordItems(s, null), animate);
+  }
+
+  // succès Steam (réponse plus lente) : le chiffre et le succès le plus rare arrivent ensuite
+  const { v, d } = ui.k.ach;
+  if (!v._val) { v.textContent = '…'; d.textContent = t('Chargement…'); }
+  const token = (ui.achToken = {});
+  loadStatsAchievements(s).then((a) => {
+    if (ui.achToken !== token || !v.isConnected) return;
+    if (a?.status === 'ok') {
+      tween(v, a.count, (x) => nf.format(Math.round(x)));
+      d.textContent = a.rare ? (a.rare > 1 ? t('dont {n} rares (< 5 %)', { n: a.rare }) : t('dont {n} rare (< 5 %)', { n: a.rare })) : s.p === 'all' ? t('sur tes jeux les plus joués') : t('sur tes jeux Steam');
+      if (a.rarest && !noData) swap(ui.recs, recordItems(s, a), false);
+    } else if (a?.status === 'nokey') { v._val = 0; v.textContent = '—'; d.replaceChildren(el('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings(); } }, t('Ajoute ta clé Steam'))); }
+    else { v._val = 0; v.textContent = '—'; d.textContent = t('Indisponible'); }
+  });
+}
+
+function setStatsPeriod(p) {
+  if (statsState.period === p && statsUI) return;
+  statsState.period = p;
+  if (statsUI?.root[0].isConnected && statsState.history) applyStats(statsUI, computeStats(p), true);
+  else renderStatsView();
+}
+
+async function renderStatsView(refresh = false) {
+  const box = $('#statsview');
+  if (!statsState.history || refresh) {
+    if (!box.childElementCount) box.replaceChildren(el('p', { class: 'muted' }, t('Calcul de tes statistiques…')));
+    try { statsState.history = await api.history(); } catch { statsState.history = { days: {}, since: null }; }
+  }
+  if (state.view !== 'stats') return;
+  const s = computeStats(statsState.period);
+  // déjà affiché : on rafraîchit les données sur place (calendrier et bibliothèque compris)
+  if (statsUI?.root[0].isConnected) {
+    const heat = statsHeat(s), lib = statsLibrary();
+    statsUI.heat.replaceWith(heat); statsUI.lib.replaceWith(lib);
+    statsUI.heat = heat; statsUI.lib = lib;
+    statsUI.root.splice(-2, 2, heat, lib);
+    applyStats(statsUI, s, false);
+    return;
+  }
+  statsUI = buildStatsView(s);
+  box.replaceChildren(...statsUI.root);
+  applyStats(statsUI, s, false);
 }
 
 // ---------- Chargement ----------
@@ -1036,6 +1491,7 @@ async function load(force = false) {
     state.games = lib.games;
     state.status = lib.status;
     state.week = await api.week();
+    statsState.history = null; // recalculé à l'affichage de l'onglet Statistiques
     state.updates = await api.updates().catch(() => ({}));
     if (!state.selected) state.selected = [...state.games].sort((a, b) => b.lastPlayed - a.lastPlayed)[0]?.key || null;
     render();
@@ -1051,6 +1507,7 @@ async function openSettings() {
   f.steamApiKey.value = s.steamApiKey;
   f.openAtLogin.checked = s.openAtLogin;
   f.hideWhilePlaying.checked = s.hideWhilePlaying !== false;
+  f.querySelectorAll('input[name="lang"]').forEach((r) => { r.checked = r.value === (s.lang || LANG); });
   const st = state.status.steam || {}, ep = state.status.epic || {};
   $('#steam-detected').className = 'small ' + (st.found ? 'ok' : 'warn');
   $('#steam-detected').textContent = st.found ? `Steam détecté${st.user ? ` · compte ${st.user.name}` : ''}` : 'Steam introuvable à cet emplacement.';
@@ -1064,7 +1521,9 @@ async function openSettings() {
 
 $('#settings-form').addEventListener('submit', async () => {
   const f = $('#settings-form');
-  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked });
+  const lang = f.querySelector('input[name="lang"]:checked')?.value || LANG;
+  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked, lang });
+  if (lang !== LANG) return; // Hangar se recharge dans la nouvelle langue
   load(true).then(() => refreshFriends());
 });
 $('#settings-cancel').addEventListener('click', () => $('#settings').close());

@@ -333,12 +333,12 @@ function week(isDemo) {
 function createWindow(show = true) {
   win = new BrowserWindow({
     width: 1440, height: 920, minWidth: 900, minHeight: 600, show,
-    backgroundColor: '#0F1115', title: PREVIEW ? 'Hangar — Aperçu' : 'Hangar', icon: ICON, autoHideMenuBar: true,
+    backgroundColor: '#0F1115', title: PREVIEW ? tm('Hangar — Aperçu') : 'Hangar', icon: ICON, autoHideMenuBar: true,
     // Pas de barre de titre Windows : la barre du haut de Hangar en tient lieu (déplacement, boutons de fenêtre)
     titleBarStyle: 'hidden',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   });
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lang: uiLang() } });
   // Les liens externes s'ouvrent dans le navigateur, jamais dans l'appli
   win.webContents.setWindowOpenHandler(({ url }) => { openLink(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -362,7 +362,7 @@ function createSplash() {
     show: false, center: true, backgroundColor: '#07080B', title: 'Hangar', icon: ICON, skipTaskbar: false,
     webPreferences: { preload: path.join(__dirname, 'splash-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, autoplayPolicy: 'no-user-gesture-required' }
   });
-  splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'), { query: { v: app.getVersion() } });
+  splash.loadFile(path.join(__dirname, '..', 'renderer', 'splash.html'), { query: { v: app.getVersion(), lang: uiLang() } });
   // L'intro passe au premier plan, même par-dessus une appli en plein écran
   splash.once('ready-to-show', () => {
     if (!splash) return;
@@ -373,7 +373,24 @@ function createSplash() {
   splash.webContents.on('did-finish-load', () => { if (splashLast) splash?.webContents.send('splash-progress', splashLast); });
   splash.on('closed', () => { splash = null; });
 }
+// Langue de l'interface : choisie dans les Réglages, sinon celle de Windows (français ou anglais)
+function uiLang() {
+  const l = store?.settings().lang;
+  if (l === 'fr' || l === 'en') return l;
+  return /^fr/i.test(app.getLocale() || '') ? 'fr' : 'en';
+}
+const MAIN_EN = {
+  'Démarrage…': 'Starting…', 'Lecture de ta bibliothèque…': 'Reading your library…', 'Bibliothèque Steam chargée…': 'Steam library loaded…',
+  'Epic Games…': 'Epic Games…', 'Ubisoft, EA, Xbox et GOG…': 'Ubisoft, EA, Xbox and GOG…', 'Chargement des jaquettes…': 'Loading covers…',
+  'Prochaines sorties…': 'Upcoming releases…', 'Tes amis…': 'Your friends…', 'Tes succès…': 'Your achievements…',
+  "Préparation de l'interface…": 'Preparing the interface…', 'Prêt !': 'Ready!', 'Ouvrir Hangar': 'Open Hangar', 'Quitter': 'Quit',
+  'Choisir une image': 'Choose an image', 'Images': 'Images', 'Choisir le jeu à ajouter': 'Choose the game to add', 'Jeux et raccourcis': 'Games and shortcuts',
+  'Hangar — Aperçu': 'Hangar — Preview'
+};
+const tm = (fr) => (uiLang() === 'en' && MAIN_EN[fr]) || fr;
+
 function splashProgress(percent, text) {
+  text = text && tm(text);
   splashLast = { percent, text };
   if (splash && !splash.isDestroyed()) splash.webContents.send('splash-progress', { percent, text });
 }
@@ -438,9 +455,9 @@ function createTray() {
     tray = new Tray(trayIcon.isEmpty() ? nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }) : trayIcon.resize({ width: 16, height: 16, quality: 'best' }));
     tray.setToolTip('Hangar');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Ouvrir Hangar', click: () => { if (win && !splash) { win.show(); win.focus(); } } },
+      { label: tm('Ouvrir Hangar'), click: () => { if (win && !splash) { win.show(); win.focus(); } } },
       { type: 'separator' },
-      { label: 'Quitter', click: () => { quitting = true; app.quit(); } }
+      { label: tm('Quitter'), click: () => { quitting = true; app.quit(); } }
     ]));
     tray.on('click', () => { if (win && !splash) { win.show(); win.focus(); } });
   } catch { tray = null; }
@@ -455,6 +472,35 @@ function registerIpc() {
     return { status: lib.status, games: lib.games.map((g) => ({ ...g, exes: undefined, installDir: undefined, favorite: !!fav[g.key] })) };
   });
   ipcMain.handle('week:get', async () => week((await loadLibrary()).status.demo));
+  // Statistiques : temps joué jour par jour depuis le début du suivi
+  ipcMain.handle('history:get', async () => {
+    const isDemo = (await loadLibrary()).status.demo;
+    if (isDemo) return { days: demo.week(), since: null, demo: true };
+    const days = store.history();
+    const first = [Object.keys(days).sort()[0], store.firstSnapshotDay()].filter(Boolean).sort()[0] || null;
+    return { days, since: first };
+  });
+  // Succès Steam débloqués depuis une date, sur une liste de jeux (les plus joués de la période)
+  ipcMain.handle('stats:achievements', async (_e, keys, since) => {
+    const settings = store.settings();
+    const steamId = settings.steamId || cache.status?.steam?.user?.steamId || null;
+    if (!settings.steamApiKey) return { status: 'nokey' };
+    if (!steamId) return { status: 'nouser' };
+    const games = new Map(cache.games.map((g) => [g.key, g]));
+    const list = (Array.isArray(keys) ? keys : []).map((k) => games.get(String(k))).filter((g) => g?.source === 'steam').slice(0, 15);
+    const results = await Promise.all(list.map((g) => achievements.forGame(settings.steamApiKey, steamId, g.id).then((d) => ({ g, d })).catch(() => null)));
+    let count = 0, rare = 0, rarest = null;
+    for (const r of results) {
+      if (!r || r.d.status !== 'ok') continue;
+      for (const a of r.d.items) {
+        if (!a.achieved || !a.unlockTime || a.unlockTime < (Number(since) || 0)) continue;
+        count++;
+        if (a.percent != null && a.percent < 5) rare++;
+        if (a.percent != null && (!rarest || a.percent < rarest.percent)) rarest = { name: a.name, percent: a.percent, gameKey: r.g.key };
+      }
+    }
+    return { status: 'ok', count, rare, rarest, games: list.length };
+  });
   ipcMain.handle('news:get', async (_e, appid) => {
     try { return { items: await steamNews(appid) }; } catch (e) { return { items: [], error: e.message }; }
   });
@@ -490,7 +536,7 @@ function registerIpc() {
   ipcMain.handle('cover:pick', async (_e, key) => {
     key = String(key);
     if (!cache.games.some((g) => g.key === key)) return false;
-    const r = await dialog.showOpenDialog(win, { title: 'Choisir une image', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }] });
+    const r = await dialog.showOpenDialog(win, { title: tm('Choisir une image'), properties: ['openFile'], filters: [{ name: tm('Images'), extensions: ['jpg', 'jpeg', 'png', 'webp'] }] });
     if (r.canceled || !r.filePaths[0]) return false;
     const ext = path.extname(r.filePaths[0]).toLowerCase();
     const name = key.replace(/[^a-z0-9_-]/gi, '_') + ext;
@@ -506,8 +552,8 @@ function registerIpc() {
   // Jeux ajoutés à la main : choix du fichier → nom proposé → ajout / retrait
   ipcMain.handle('custom:pick', async () => {
     const r = await dialog.showOpenDialog(win, {
-      title: 'Choisir le jeu à ajouter', properties: ['openFile'],
-      filters: [{ name: 'Jeux et raccourcis', extensions: ['exe', 'lnk', 'url'] }]
+      title: tm('Choisir le jeu à ajouter'), properties: ['openFile'],
+      filters: [{ name: tm('Jeux et raccourcis'), extensions: ['exe', 'lnk', 'url'] }]
     });
     if (r.canceled || !r.filePaths[0]) return null;
     return custom.suggest(r.filePaths[0]);
@@ -547,6 +593,7 @@ function registerIpc() {
   });
   ipcMain.handle('settings:get', () => ({
     ...store.settings(),
+    lang: uiLang(),
     defaults: { steamPath: steam.defaultSteamPath(), epicPath: epic.defaultEpicDataPath() },
     openAtLogin: app.getLoginItemSettings().openAtLogin
   }));
@@ -556,7 +603,14 @@ function registerIpc() {
     for (const k of allowed) if (typeof patch?.[k] === 'string') clean[k] = patch[k].trim();
     if (typeof patch?.hideWhilePlaying === 'boolean') clean.hideWhilePlaying = patch.hideWhilePlaying;
     if (typeof patch?.onboarded === 'boolean') clean.onboarded = patch.onboarded;
+    if (patch?.lang === 'fr' || patch?.lang === 'en') clean.lang = patch.lang;
+    const langChanged = clean.lang && clean.lang !== uiLang();
     store.setSettings(clean);
+    // nouvelle langue : l'interface se recharge, le menu de la zone de notification aussi
+    if (langChanged) {
+      if (tray) { tray.destroy(); tray = null; if (!PREVIEW) createTray(); }
+      setTimeout(() => { if (win && !win.isDestroyed()) win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { lang: uiLang() } }); }, 150);
+    }
     if (typeof patch?.openAtLogin === 'boolean') app.setLoginItemSettings({ openAtLogin: patch.openAtLogin, args: ['--hidden'] });
     return true;
   });

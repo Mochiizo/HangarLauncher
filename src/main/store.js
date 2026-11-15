@@ -8,6 +8,7 @@ const empty = () => ({
   settings: { steamPath: '', epicPath: '', steamApiKey: '', steamId: '', accent: '#E8B04B', hideWhilePlaying: true },
   snapshots: {},   // { "2026-11-05": { "steam-123": totalMinutes } }
   tracked: {},     // { "2026-11-05": { "epic-Foo": minutes } } (détection de processus)
+  daily: {},       // { "2026-11-05": { "steam-123": minutes } } temps Steam joué par jour (gardé sans limite, pour les statistiques)
   epicTotals: {},  // { "epic-Foo": minutes }
   epicLast: {},    // { "epic-Foo": timestampMs }
   favorites: {},
@@ -29,6 +30,24 @@ function createStore(dir) {
     db = { ...db, ...saved, settings: { ...db.settings, ...saved.settings } };
   } catch { /* premier lancement */ }
 
+  // Temps Steam joué un jour = écart avec le snapshot précédent
+  function steamDiff(day) {
+    const out = {};
+    const prev = Object.keys(db.snapshots).filter((d) => d < day).sort().pop();
+    if (!db.snapshots[day] || !prev) return out;
+    for (const [k, total] of Object.entries(db.snapshots[day])) {
+      // Jeu absent du snapshot précédent : il vient d'apparaître dans la bibliothèque (clé API, jeu
+      // retrouvé…), pas d'être joué. Son temps total n'est pas du temps joué ce jour-là.
+      if (!(k in db.snapshots[prev])) continue;
+      const diff = total - db.snapshots[prev][k];
+      if (diff > 0) out[k] = diff;
+    }
+    return out;
+  }
+  // Données d'avant les statistiques : on reconstitue l'historique à partir des snapshots encore présents
+  db.daily ??= {};
+  for (const day of Object.keys(db.snapshots)) if (!db.daily[day]) { const d = steamDiff(day); if (Object.keys(d).length) db.daily[day] = d; }
+
   let t = null;
   const save = () => {
     clearTimeout(t);
@@ -45,7 +64,10 @@ function createStore(dir) {
       const snap = {};
       for (const g of games) if (g.source === 'steam' && g.minutes > 0) snap[g.key] = g.minutes;
       if (!Object.keys(snap).length) return;
-      db.snapshots[dayKey()] = snap;
+      const today = dayKey();
+      db.snapshots[today] = snap;
+      const diff = steamDiff(today);
+      if (Object.keys(diff).length) db.daily[today] = diff; else delete db.daily[today];
       const days = Object.keys(db.snapshots).sort();
       while (days.length > 90) delete db.snapshots[days.shift()];
       save();
@@ -63,20 +85,18 @@ function createStore(dir) {
 
     toggleFavorite(key) { if (db.favorites[key]) delete db.favorites[key]; else db.favorites[key] = true; save(); return !!db.favorites[key]; },
 
-    // Minutes jouées par jeu un jour donné = écart avec le dernier snapshot précédent + sessions suivies
+    // Minutes jouées par jeu un jour donné = temps Steam (écart entre snapshots) + sessions suivies
     playedOn(day) {
-      const out = {};
-      const prev = Object.keys(db.snapshots).filter((d) => d < day).sort().pop();
-      if (db.snapshots[day] && prev) {
-        for (const [k, total] of Object.entries(db.snapshots[day])) {
-          // Jeu absent du snapshot précédent : il vient d'apparaître dans la bibliothèque (clé API, jeu
-          // retrouvé…), pas d'être joué. Son temps total n'est pas du temps joué ce jour-là.
-          if (!(k in db.snapshots[prev])) continue;
-          const diff = total - db.snapshots[prev][k];
-          if (diff > 0) out[k] = diff;
-        }
-      }
+      const out = { ...(db.daily[day] || (db.snapshots[day] ? steamDiff(day) : {})) };
       for (const [k, m] of Object.entries(db.tracked[day] || {})) out[k] = (out[k] || 0) + m;
+      return out;
+    },
+
+    // Tout l'historique jour par jour (statistiques)
+    history() {
+      const days = new Set([...Object.keys(db.daily), ...Object.keys(db.tracked)]);
+      const out = {};
+      for (const d of days) { const p = this.playedOn(d); if (Object.keys(p).length) out[d] = p; }
       return out;
     },
 

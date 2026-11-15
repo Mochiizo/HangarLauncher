@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   library: (force) => ipcRenderer.invoke('library:get', force),
   week: () => ipcRenderer.invoke('week:get'),
+  history: () => ipcRenderer.invoke('history:get'),
+  statsAchievements: (keys, since) => ipcRenderer.invoke('stats:achievements', keys, since),
   news: (appid) => ipcRenderer.invoke('news:get', appid),
   toggleFavorite: (key) => ipcRenderer.invoke('favorite:toggle', key),
   launch: (key, action) => ipcRenderer.invoke('game:launch', key, action),

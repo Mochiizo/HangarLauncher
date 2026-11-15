@@ -2,6 +2,11 @@
 // charge, affiche la progression envoyée par Hangar, puis s'efface.
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
+if (params.get('lang') === 'en') {
+  document.documentElement.lang = 'en';
+  $('#st').textContent = 'Starting…';
+  $('#skip').firstChild.textContent = 'Skip ';
+}
 if (params.get('v')) $('#ver').textContent = `Version ${params.get('v')}`;
 
 let shown = 0;
