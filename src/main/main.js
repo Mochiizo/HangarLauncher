@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, protocol } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const telemetry = require('./telemetry');
 const { createStore, dayKey } = require('./store');
 const steam = require('./steam');
 const epic = require('./epic');
@@ -471,6 +472,7 @@ function registerIpc() {
     const fav = store.db.favorites;
     return { status: lib.status, games: lib.games.map((g) => ({ ...g, exes: undefined, installDir: undefined, favorite: !!fav[g.key] })) };
   });
+  ipcMain.handle('online:get', () => telemetry.online());
   ipcMain.handle('week:get', async () => week((await loadLibrary()).status.demo));
   // Statistiques : temps joué jour par jour depuis le début du suivi
   ipcMain.handle('history:get', async () => {
@@ -594,6 +596,7 @@ function registerIpc() {
   ipcMain.handle('settings:get', () => ({
     ...store.settings(),
     lang: uiLang(),
+    telemetry: store.settings().telemetry !== false,
     defaults: { steamPath: steam.defaultSteamPath(), epicPath: epic.defaultEpicDataPath() },
     openAtLogin: app.getLoginItemSettings().openAtLogin
   }));
@@ -604,6 +607,12 @@ function registerIpc() {
     if (typeof patch?.hideWhilePlaying === 'boolean') clean.hideWhilePlaying = patch.hideWhilePlaying;
     if (typeof patch?.onboarded === 'boolean') clean.onboarded = patch.onboarded;
     if (patch?.lang === 'fr' || patch?.lang === 'en') clean.lang = patch.lang;
+    if (typeof patch?.telemetry === 'boolean') {
+      clean.telemetry = patch.telemetry;
+      // coupé : Hangar n'apparaît plus « en ligne » ; réactivé : signal tout de suite
+      if (!patch.telemetry && store.settings().telemetry !== false) telemetry.leave();
+      if (patch.telemetry && store.settings().telemetry === false) setTimeout(() => telemetry.beat(), 500);
+    }
     const langChanged = clean.lang && clean.lang !== uiLang();
     store.setSettings(clean);
     // nouvelle langue : l'interface se recharge, le menu de la zone de notification aussi
@@ -684,6 +693,8 @@ app.whenReady().then(() => {
   if (!PREVIEW) createTray();
   // Ouverture à la main comme au démarrage de Windows : intro, chargement, puis Hangar s'ouvre
   startWithSplash().catch(() => { if (!win) createWindow(); else win.show(); });
+  // Signal anonyme une fois par jour (compte les utilisateurs actifs ; jamais dans l'aperçu)
+  telemetry.start({ store, version: app.getVersion(), disabled: PREVIEW || !app.isPackaged });
   setInterval(() => loadLibrary(true).then(() => { if (win && !win.isDestroyed()) win.webContents.send('library-changed'); }).catch(() => {}), REFRESH_MS);
   watchLibrary();
   startTracker(() => cache.games, (key) => store.addTrackedMinute(key));

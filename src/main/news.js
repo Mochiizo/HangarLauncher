@@ -29,6 +29,12 @@ function bodyImage(text) {
   return m[0].startsWith('{') ? CLAN_IMG + m[1] : m[1];
 }
 
+// Article complet (BBCode Steam), affiché dans la fenêtre d'actualité de Hangar : les images
+// « {STEAM_CLAN_IMAGE} » deviennent des adresses complètes ; taille limitée par sécurité.
+function fullBody(text) {
+  return String(text || '').replace(/\{STEAM_CLAN_IMAGE\}/g, CLAN_IMG).slice(0, 120000);
+}
+
 const firstOf = (arr) => (Array.isArray(arr) ? arr.find(Boolean) : null);
 
 async function fromEvents(appid) {
@@ -44,6 +50,7 @@ async function fromEvents(appid) {
     const body = e.announcement_body || {};
     const clanid = body.clanid;
     const capsule = firstOf(data?.localized_capsule_image) || firstOf(data?.localized_title_image);
+    const header = firstOf(data?.localized_title_image) || capsule;
     return {
       id: e.gid,
       title: body.headline || e.event_name,
@@ -51,7 +58,9 @@ async function fromEvents(appid) {
       date: (e.rtime32_start_time || body.posttime || 0) * 1000,
       source: TYPE_LABEL[e.event_type] || 'Actualités',
       image: capsule && clanid ? `${CLAN_IMG}/${clanid}/${capsule}` : bodyImage(body.body),
-      excerpt: excerpt(body.body)
+      hero: header && clanid ? `${CLAN_IMG}/${clanid}/${header}` : bodyImage(body.body),
+      excerpt: excerpt(body.body),
+      body: fullBody(body.body)
     };
   }).sort((a, b) => b.date - a.date);
 }
@@ -62,7 +71,7 @@ async function fromNewsFeed(appid) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return ((await res.json())?.appnews?.newsitems || []).map((n) => ({
     id: n.gid, title: n.title, url: /^https:\/\//.test(n.url) ? n.url : null, date: n.date * 1000,
-    source: 'Actualités', image: bodyImage(n.contents), excerpt: excerpt(n.contents)
+    source: 'Actualités', image: bodyImage(n.contents), hero: bodyImage(n.contents), excerpt: excerpt(n.contents), body: fullBody(n.contents)
   }));
 }
 

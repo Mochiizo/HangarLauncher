@@ -398,7 +398,7 @@ async function renderAchievements(g) {
 const newsCache = new Map();
 const activityState = { key: null, expanded: false };
 
-function activityItem(n) {
+function activityItem(n, list, g) {
   const thumb = n.image
     ? el('span', { class: 'news-img' }, el('img', { src: n.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.parentElement.remove() }))
     : null;
@@ -406,9 +406,7 @@ function activityItem(n) {
     el('span', { class: 'news-src' }, n.source),
     el('span', { class: 'news-title' }, n.title),
     n.excerpt ? el('span', { class: 'news-ex' }, n.excerpt + (n.excerpt.length >= 220 ? '…' : '')) : null);
-  return n.url
-    ? el('a', { class: 'news', href: n.url, target: '_blank', rel: 'noreferrer' }, thumb, body)
-    : el('div', { class: 'news' }, thumb, body);
+  return el('button', { type: 'button', class: 'news', onclick: () => openNews(list, list.indexOf(n), g) }, thumb, body);
 }
 
 function paintActivity(g, data) {
@@ -422,7 +420,7 @@ function paintActivity(g, data) {
     const label = new Date(n.date).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: new Date(n.date).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
     if (groups.at(-1)?.label === label) groups.at(-1).items.push(n); else groups.push({ label, items: [n] });
   }
-  const nodes = groups.map((grp) => el('div', { class: 'news-group' }, el('div', { class: 'news-date' }, grp.label), ...grp.items.map(activityItem)));
+  const nodes = groups.map((grp) => el('div', { class: 'news-group' }, el('div', { class: 'news-date' }, grp.label), ...grp.items.map((n) => activityItem(n, data.items, g))));
   if (data.items.length > 4) nodes.push(el('button', { type: 'button', class: 'pill', onclick: () => { activityState.expanded = !activityState.expanded; paintActivity(g, data); } },
     activityState.expanded ? 'Afficher moins' : `Afficher plus (${data.items.length - 4})`));
   box.replaceChildren(...nodes);
@@ -443,6 +441,226 @@ async function renderActivity(g) {
   if (!data.error) newsCache.set(g.key, data);
   if (activityState.key === g.key) paintActivity(g, data);
 }
+
+// ---------- Fenêtre d'actualité (article complet, par-dessus Hangar) ----------
+// Les annonces Steam sont écrites en BBCode ([h2], [list], [img]…). On les transforme en éléments
+// construits un par un (jamais de HTML brut) : aucun script ni style venu de l'article ne peut s'exécuter.
+const BB_BLOCK = new Set(['h1', 'h2', 'h3', 'list', 'olist', 'p', 'hr', 'quote', 'code', 'img', 'previewyoutube', 'video', 'table', 'tr', '*']);
+const BB_KNOWN = new Set(['h1', 'h2', 'h3', 'h4', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'p', 'hr', 'quote', 'code', 'spoiler', 'noparse', 'list', 'olist', '*', 'table', 'tr', 'th', 'td', 'url', 'img', 'previewyoutube', 'video', 'expand', 'dynamiclink']);
+const safeUrl = (u) => { const x = String(u || '').trim().replace(/^"|"$/g, ''); return /^https?:\/\//i.test(x) ? x : null; };
+const decodeEntities = (x) => x.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+function bbParse(src) {
+  let text = String(src || '');
+  // flux externe en HTML : on garde seulement le texte
+  if (/<(p|br|div|img|a)\b[^>]*>/i.test(text) && !/\[(h\d|list|b|img|url)\b/i.test(text)) {
+    text = text.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '');
+  }
+  const root = { tag: 'root', kids: [] };
+  const stack = [root];
+  const re = /\[(\/?)([a-z0-9*]+)((?:=[^\]]*)|(?:\s+[a-z_]+=(?:"[^"]*"|[^\s\]]*))*)\]/gi;
+  let last = 0, m, noparse = false;
+  const top = () => stack[stack.length - 1];
+  const pushText = (x) => { if (x) top().kids.push(decodeEntities(x)); };
+  while ((m = re.exec(text))) {
+    const [all, close, rawTag, rawAttr] = m;
+    const tag = rawTag.toLowerCase();
+    if (noparse && !(close && tag === 'noparse')) continue;
+    if (!BB_KNOWN.has(tag)) continue; // « [PC] », « [EU] »… : c'est du texte, pas une balise
+    pushText(text.slice(last, m.index));
+    last = m.index + all.length;
+    if (tag === 'noparse') { noparse = !close; continue; }
+    if (close) {
+      const i = stack.map((n) => n.tag).lastIndexOf(tag);
+      if (i > 0) stack.length = i; // ferme aussi les balises oubliées à l'intérieur
+      else if (tag === 'list' || tag === 'olist') { /* ignoré */ }
+      continue;
+    }
+    const attrs = {};
+    if (rawAttr?.startsWith('=')) attrs._ = rawAttr.slice(1).replace(/^"|"$/g, '');
+    else for (const a of (rawAttr || '').matchAll(/([a-z_]+)=("([^"]*)"|[^\s\]]*)/gi)) attrs[a[1].toLowerCase()] = a[3] ?? a[2];
+    if (tag === '*') {
+      // un nouvel élément de liste ferme le précédent
+      while (stack.length > 1 && !['list', 'olist'].includes(top().tag)) { if (top().tag === '*') { stack.pop(); break; } stack.pop(); }
+      const li = { tag, attrs, kids: [] }; top().kids.push(li); stack.push(li); continue;
+    }
+    const node = { tag, attrs, kids: [] };
+    top().kids.push(node);
+    if (tag !== 'hr' && tag !== 'br') stack.push(node);
+  }
+  pushText(text.slice(last));
+  return root;
+}
+
+function bbRender(node, ctx) {
+  const kids = () => node.kids.map((k, i) => {
+    if (typeof k !== 'string') return bbRender(k, ctx);
+    // retours à la ligne collés à un bloc : ils ne doivent pas créer de lignes vides
+    let x = k;
+    if (i === 0 || (typeof node.kids[i - 1] !== 'string' && BB_BLOCK.has(node.kids[i - 1].tag))) x = x.replace(/^[ \t]*\n/, '');
+    if (i === node.kids.length - 1 || (typeof node.kids[i + 1] !== 'string' && BB_BLOCK.has(node.kids[i + 1].tag))) x = x.replace(/\n[ \t]*$/, '');
+    return x ? document.createTextNode(x) : null;
+  }).filter(Boolean);
+  const textOf = (n) => n.kids.map((k) => (typeof k === 'string' ? k : textOf(k))).join('');
+  const a = node.attrs || {};
+  switch (node.tag) {
+    case 'root': return el('div', {}, kids());
+    case 'h1': case 'h2': return el('h2', {}, kids());
+    case 'h3': case 'h4': return el('h3', {}, kids());
+    case 'b': case 'strong': return el('b', {}, kids());
+    case 'i': case 'em': return el('i', {}, kids());
+    case 'u': return el('u', {}, kids());
+    case 'strike': case 's': return el('s', {}, kids());
+    case 'p': return el('p', {}, kids());
+    case 'hr': return el('hr');
+    case 'quote': return el('blockquote', {}, kids());
+    case 'code': return el('pre', {}, el('code', {}, textOf(node)));
+    case 'spoiler': return el('span', { class: 'nv-spoiler', tabindex: '0', title: t('Afficher'), onclick: (e) => e.currentTarget.classList.add('shown') }, kids());
+    case 'list': return el('ul', {}, kids());
+    case 'olist': return el('ol', {}, kids());
+    case '*': return el('li', {}, kids());
+    case 'table': return el('div', { class: 'nv-table' }, el('table', {}, kids()));
+    case 'tr': return el('tr', {}, kids());
+    case 'th': return el('th', {}, kids());
+    case 'td': return el('td', {}, kids());
+    case 'dynamiclink': {
+      const href = safeUrl(a.href || a._);
+      return href ? el('a', { href, target: '_blank', rel: 'noreferrer' }, href) : null;
+    }
+    case 'url': {
+      const href = safeUrl(a._ || textOf(node));
+      return href ? el('a', { href, target: '_blank', rel: 'noreferrer', title: href }, node.kids.length ? kids() : href) : el('span', {}, kids());
+    }
+    case 'img': {
+      const src = safeUrl(a.src || a._ || textOf(node));
+      if (!src) return null;
+      ctx.images++;
+      return el('figure', { class: 'nv-figure' }, el('img', { src, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.parentElement.remove() }));
+    }
+    case 'previewyoutube': {
+      const id = String(a._ || textOf(node)).split(';')[0].replace(/[^\w-]/g, '');
+      if (!id) return null;
+      const url = `https://www.youtube.com/watch?v=${id}`;
+      return el('a', { class: 'nv-video', href: url, target: '_blank', rel: 'noreferrer', style: `background-image:url(https://img.youtube.com/vi/${id}/hqdefault.jpg)` },
+        el('span', {}, svg('<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>'), t('Voir la vidéo sur YouTube')));
+    }
+    case 'video': {
+      const poster = safeUrl(a.poster);
+      return poster ? el('figure', { class: 'nv-figure' }, el('img', { src: poster, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.parentElement.remove() })) : null;
+    }
+    default: return el('span', {}, kids());
+  }
+}
+
+const NV_ICONS = {
+  close: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  up: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 7l7 9H5z"/></svg>',
+  down: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 17l-7-9h14z"/></svg>',
+  ext: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>'
+};
+const newsViewer = { items: [], i: 0, ui: null, back: null };
+
+// items : actualités ({ title, date, source, hero/image, body, url, game? }) ; game : jeu par défaut
+function openNews(items, i, game) {
+  newsViewer.items = items.map((n) => ({ ...n, game: n.game || game }));
+  newsViewer.back = document.activeElement;
+  if (!newsViewer.ui) buildNewsViewer();
+  const ui = newsViewer.ui;
+  document.body.append(ui.wrap);
+  document.body.classList.add('nv-open');
+  requestAnimationFrame(() => ui.wrap.classList.add('on'));
+  showNews(i, false);
+  ui.close.focus({ preventScroll: true });
+}
+
+function closeNews() {
+  const ui = newsViewer.ui;
+  if (!ui?.wrap.isConnected) return;
+  ui.wrap.classList.remove('on');
+  document.body.classList.remove('nv-open');
+  setTimeout(() => { if (!ui.wrap.classList.contains('on')) ui.wrap.remove(); }, 220);
+  newsViewer.back?.focus?.({ preventScroll: true });
+}
+
+function buildNewsViewer() {
+  const ui = {};
+  ui.hero = el('div', { class: 'nv-hero' });
+  ui.type = el('span', { class: 'nv-type' });
+  ui.date = el('span', {});
+  ui.game = el('span', { class: 'nv-game' });
+  ui.title = el('h1', { id: 'nv-title' });
+  ui.body = el('div', { class: 'nv-body' });
+  ui.scroll = el('div', { class: 'nv-scroll' }, ui.hero, el('header', { class: 'nv-head' }, el('div', { class: 'nv-meta' }, ui.type, ui.date, ui.game), ui.title), ui.body);
+  ui.steam = el('a', { class: 'nv-btn', target: '_blank', rel: 'noreferrer' }, t('Voir sur Steam'), svg(NV_ICONS.ext));
+  ui.card = el('article', { class: 'nv-card' }, ui.scroll,
+    el('footer', { class: 'nv-foot' }, el('span', {}, t('Publié sur Steam par les développeurs du jeu')), ui.steam));
+  ui.close = el('button', { type: 'button', class: 'close', 'aria-label': t('Fermer'), title: t('Fermer (Échap)'), onclick: closeNews }, svg(NV_ICONS.close));
+  ui.prev = el('button', { type: 'button', 'aria-label': t('Actualité précédente'), title: t('Actualité précédente'), onclick: () => showNews(newsViewer.i - 1, true) }, svg(NV_ICONS.up));
+  ui.next = el('button', { type: 'button', 'aria-label': t('Actualité suivante'), title: t('Actualité suivante'), onclick: () => showNews(newsViewer.i + 1, true) }, svg(NV_ICONS.down));
+  ui.count = el('span', { class: 'nv-count', 'aria-live': 'polite' });
+  ui.peek = el('button', { type: 'button', class: 'nv-next', onclick: () => showNews(newsViewer.i + 1, true) });
+  ui.rail = el('nav', { class: 'nv-rail', 'aria-label': t('Navigation') }, ui.close, ui.prev, ui.count, ui.next, ui.peek, el('span', { class: 'nv-kbd', 'aria-hidden': 'true' }, el('kbd', {}, '↑'), el('kbd', {}, '↓')));
+  ui.wrap = el('div', { class: 'nv-wrap', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'nv-title',
+    onclick: (e) => { if (e.target === ui.wrap || e.target === ui.box) closeNews(); } });
+  ui.box = el('div', { class: 'nv' }, ui.card, ui.rail);
+  ui.wrap.append(ui.box);
+  newsViewer.ui = ui;
+}
+
+function showNews(i, animate) {
+  const { items, ui } = newsViewer;
+  if (i < 0 || i >= items.length) return;
+  newsViewer.i = i;
+  const n = items[i];
+  const paint = () => {
+    const hero = n.hero || n.image;
+    ui.hero.style.backgroundImage = hero ? `url("${hero.replace(/"/g, '%22')}")` : '';
+    ui.hero.classList.toggle('none', !hero);
+    ui.type.textContent = t(n.source || 'Actualités');
+    ui.date.textContent = t('Publié le {d}', { d: new Date(n.date).toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: new Date(n.date).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) });
+    const g = n.game;
+    ui.game.replaceChildren(...(g ? [art(g, ['cover', 'header', 'hero']), el('span', {}, g.title)] : []));
+    ui.game.hidden = !g;
+    ui.title.textContent = n.title || '';
+    const ctx = { images: 0 };
+    const content = n.body ? bbRender(bbParse(n.body), ctx) : el('p', {}, n.excerpt || '');
+    ui.body.replaceChildren(content);
+    // la première image de l'article est souvent celle de l'en-tête : on ne la montre pas deux fois
+    const first = ui.body.querySelector('.nv-figure img');
+    if (first && hero && first.src === new URL(hero, location.href).href) first.parentElement.remove();
+    ui.steam.hidden = !n.url;
+    if (n.url) ui.steam.href = n.url;
+    ui.count.textContent = `${i + 1} / ${items.length}`;
+    ui.prev.disabled = i === 0;
+    ui.next.disabled = i === items.length - 1;
+    const nx = items[i + 1];
+    ui.peek.hidden = !nx;
+    if (nx) {
+      ui.peek.title = t('Suivante : {t}', { t: nx.title });
+      ui.peek.setAttribute('aria-label', t('Suivante : {t}', { t: nx.title }));
+      const img = nx.image || nx.hero;
+      ui.peek.replaceChildren(img ? el('img', { src: img, alt: '', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : (nx.game ? art(nx.game, ['cover', 'header']) : el('span')));
+    }
+    ui.scroll.scrollTop = 0;
+  };
+  if (!animate) return paint();
+  ui.card.classList.add('swap');
+  setTimeout(() => { paint(); ui.card.classList.remove('swap'); }, 140);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!newsViewer.ui?.wrap.isConnected) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeNews(); }
+  else if (e.key === 'ArrowDown' && !e.target.closest?.('input, textarea')) { e.preventDefault(); showNews(newsViewer.i + 1, true); }
+  else if (e.key === 'ArrowUp' && !e.target.closest?.('input, textarea')) { e.preventDefault(); showNews(newsViewer.i - 1, true); }
+  else if (e.key === 'Tab') {
+    // le focus reste dans la fenêtre
+    const f = [...newsViewer.ui.wrap.querySelectorAll('button:not([disabled]):not([hidden]), a[href]:not([hidden])')].filter((x) => x.offsetParent);
+    if (!f.length) return;
+    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f.at(-1).focus(); }
+    else if (!e.shiftKey && document.activeElement === f.at(-1)) { e.preventDefault(); f[0].focus(); }
+  }
+}, true);
 
 function renderWeek(sel) {
   const w = state.week;
@@ -651,6 +869,18 @@ function askRemove(g) {
 }
 
 $('#add-game').addEventListener('click', () => addGame());
+
+// ---------- Joueurs en ligne (personnes qui ont Hangar ouvert en ce moment) ----------
+async function refreshOnline() {
+  let n = null;
+  try { n = api.online ? await api.online() : null; } catch { /* hors ligne */ }
+  const pill = $('#online-pill');
+  if (!pill) return;
+  pill.hidden = !n;
+  if (n) $('#online-n').textContent = n > 1 ? t('{n} joueurs en ligne', { n: nf.format(n) }) : t('{n} joueur en ligne', { n: nf.format(n) });
+}
+refreshOnline();
+setInterval(refreshOnline, 2 * 60_000);
 
 // ---------- Barre latérale de la bibliothèque (masquable, choix mémorisé) ----------
 function setSidebar(collapsed, animate = true) {
@@ -1041,7 +1271,7 @@ async function fillHomeNews(box, list) {
   }
   if (!homeNews.items) return;
   if (!homeNews.items.length) return box.replaceChildren(el('p', { class: 'muted' }, 'Aucune actualité récente pour tes derniers jeux.'));
-  box.replaceChildren(...homeNews.items.map((n) => el(n.url ? 'a' : 'div', { class: 'news-card', href: n.url || null, target: n.url ? '_blank' : null, rel: n.url ? 'noreferrer' : null },
+  box.replaceChildren(...homeNews.items.map((n, i) => el('button', { type: 'button', class: 'news-card', onclick: () => openNews(homeNews.items, i) },
     el('span', { class: 'news-card-img' }, n.image ? el('img', { src: n.image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onerror: (e) => e.target.remove() }) : null, art(n.game, ['header', 'hero', 'cover'])),
     el('span', { class: 'news-card-body' },
       el('span', { class: 'news-src' }, `${n.game.title} · ${new Date(n.date).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })}`),
@@ -1508,6 +1738,7 @@ async function openSettings() {
   f.openAtLogin.checked = s.openAtLogin;
   f.hideWhilePlaying.checked = s.hideWhilePlaying !== false;
   f.querySelectorAll('input[name="lang"]').forEach((r) => { r.checked = r.value === (s.lang || LANG); });
+  if (f.telemetry) f.telemetry.checked = s.telemetry !== false;
   const st = state.status.steam || {}, ep = state.status.epic || {};
   $('#steam-detected').className = 'small ' + (st.found ? 'ok' : 'warn');
   $('#steam-detected').textContent = st.found ? `Steam détecté${st.user ? ` · compte ${st.user.name}` : ''}` : 'Steam introuvable à cet emplacement.';
@@ -1522,7 +1753,7 @@ async function openSettings() {
 $('#settings-form').addEventListener('submit', async () => {
   const f = $('#settings-form');
   const lang = f.querySelector('input[name="lang"]:checked')?.value || LANG;
-  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked, lang });
+  await api.setSettings({ steamPath: f.steamPath.value, epicPath: f.epicPath.value, steamApiKey: f.steamApiKey.value, openAtLogin: f.openAtLogin.checked, hideWhilePlaying: f.hideWhilePlaying.checked, lang, telemetry: f.telemetry ? f.telemetry.checked : true });
   if (lang !== LANG) return; // Hangar se recharge dans la nouvelle langue
   load(true).then(() => refreshFriends());
 });

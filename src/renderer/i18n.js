@@ -208,6 +208,23 @@ const EN = {
   'Bon retour ! Fin de la partie sur {g}.': 'Welcome back! Your session on {g} has ended.',
   '{g} est maintenant dans ta bibliothèque.': '{g} is now in your library.', '{n} nouveaux jeux dans ta bibliothèque.': '{n} new games in your library.',
 
+  // ---- Joueurs en ligne ----
+  '{n} joueurs en ligne': '{n} players online', '{n} joueur en ligne': '{n} player online', 'Joueurs qui ont Hangar ouvert en ce moment': 'People with Hangar open right now',
+  'Envoyer un signal anonyme pour compter les joueurs de Hangar': 'Send an anonymous signal to count Hangar players',
+  'Tant que Hangar est ouvert, il envoie seulement un identifiant tiré au hasard et son numéro de version. Aucun nom, aucun jeu, aucune info de compte. Ça sert à compter les joueurs en ligne et les utilisateurs de Hangar.': 'While Hangar is open, it only sends a random identifier and its version number. No name, no games, no account info. It\'s used to count players online and Hangar users.',
+  'Pour compter ses joueurs, Hangar envoie un signal anonyme tant qu\'il est ouvert (un identifiant au hasard et sa version, rien d\'autre). Tu peux le couper dans les Réglages, rubrique Confidentialité.': 'To count its players, Hangar sends an anonymous signal while it\'s open (a random identifier and its version, nothing else). You can turn it off in Settings, under Privacy.',
+
+  // ---- Confidentialité ----
+  'Confidentialité': 'Privacy', 'Envoyer un signal anonyme pour compter les utilisateurs de Hangar': 'Send an anonymous signal to count Hangar users',
+  'Une fois par jour, Hangar envoie seulement un identifiant tiré au hasard et son numéro de version. Aucun nom, aucun jeu, aucune info de compte. Ça m\'aide à savoir combien de personnes utilisent Hangar.': 'Once a day, Hangar only sends a random identifier and its version number. No name, no games, no account info. It helps me know how many people use Hangar.',
+  'Pour savoir combien de personnes l\'utilisent, Hangar envoie chaque jour un signal anonyme (un identifiant au hasard et sa version, rien d\'autre). Tu peux le couper dans les Réglages, rubrique Confidentialité.': 'To know how many people use it, Hangar sends an anonymous signal each day (a random identifier and its version, nothing else). You can turn it off in Settings, under Privacy.',
+
+  // ---- Fenêtre d'actualité ----
+  'Notes de patch': 'Patch notes', 'Mise à jour majeure': 'Major update', 'Actualités': 'News', 'Diffusion en direct': 'Livestream', 'Événement': 'Event', 'Promotion': 'Sale',
+  'Publié le {d}': 'Published on {d}', 'Voir sur Steam': 'View on Steam', 'Publié sur Steam par les développeurs du jeu': 'Posted on Steam by the game\'s developers',
+  'Fermer (Échap)': 'Close (Esc)', 'Actualité précédente': 'Previous news', 'Actualité suivante': 'Next news', 'Navigation': 'Navigation',
+  'Suivante : {t}': 'Next: {t}', 'Voir la vidéo sur YouTube': 'Watch the video on YouTube', 'Afficher': 'Show',
+
   // ---- Statistiques ----
   'Semaine': 'Week', 'Mois': 'Month', 'Année': 'Year', 'Depuis le début': 'All time', 'Période': 'Period',
   '7 derniers jours': 'Last 7 days', '30 derniers jours': 'Last 30 days', '12 derniers mois': 'Last 12 months', 'Toute ta bibliothèque': 'Your whole library',
@@ -310,10 +327,10 @@ if (LANG === 'en') {
   const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE']);
   function walk(root) {
     if (root.nodeType === Node.TEXT_NODE) return translateText(root);
-    if (root.nodeType !== Node.ELEMENT_NODE || SKIP.has(root.tagName) || root.closest?.('#wn-notes')) return;
+    if (root.nodeType !== Node.ELEMENT_NODE || SKIP.has(root.tagName) || root.closest?.('#wn-notes, .nv-body')) return;
     translateEl(root);
     const it = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && (SKIP.has(n.tagName) || n.id === 'wn-notes') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && (SKIP.has(n.tagName) || n.id === 'wn-notes' || n.classList.contains('nv-body')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
     });
     for (let n = it.nextNode(); n; n = it.nextNode()) { if (n.nodeType === Node.TEXT_NODE) translateText(n); else translateEl(n); }
   }

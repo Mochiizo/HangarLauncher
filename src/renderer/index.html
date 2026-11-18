@@ -26,6 +26,7 @@
       </nav>
     </div>
     <div class="topbar-right">
+      <span class="online-pill" id="online-pill" hidden title="Joueurs qui ont Hangar ouvert en ce moment"><span class="dot" aria-hidden="true"></span><span id="online-n"></span></span>
       <span id="count" class="muted small"></span>
       <button id="app-update" class="app-update" type="button" hidden></button>
       <a class="icon-btn" id="feedback-btn" href="https://github.com/Mochiizo/HangarLauncher/issues/new" target="_blank" rel="noreferrer" aria-label="Donner mon avis sur Hangar" title="Donner mon avis">
@@ -208,6 +209,7 @@
     </div>
     <a class="pill" href="https://steamcommunity.com/my/edit/settings" target="_blank" rel="noreferrer">Ouvrir mes réglages de confidentialité Steam</a>
     <p class="muted small" style="margin-top:14px">Un bug, une idée, un jeu qui manque ? Le bouton <b>bulle</b> en haut de Hangar sert à <b>donner ton avis</b>. Je lis tout !</p>
+    <p class="muted small">Pour compter ses joueurs, Hangar envoie un signal anonyme tant qu'il est ouvert (un identifiant au hasard et sa version, rien d'autre). Tu peux le couper dans les Réglages, rubrique Confidentialité.</p>
   </section>
 
   <div class="ob-actions">
@@ -308,6 +310,12 @@
       <legend>Démarrage</legend>
       <label class="check"><input id="openAtLogin" name="openAtLogin" type="checkbox"> Lancer au démarrage de l'ordinateur (avec l'intro, pour suivre le temps de jeu)</label>
       <label class="check"><input id="hideWhilePlaying" name="hideWhilePlaying" type="checkbox"> Cacher Hangar pendant que je joue, et le rouvrir quand je quitte le jeu</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Confidentialité</legend>
+      <label class="check"><input type="checkbox" name="telemetry"> Envoyer un signal anonyme pour compter les joueurs de Hangar</label>
+      <p class="muted small">Tant que Hangar est ouvert, il envoie seulement un identifiant tiré au hasard et son numéro de version. Aucun nom, aucun jeu, aucune info de compte. Ça sert à compter les joueurs en ligne et les utilisateurs de Hangar.</p>
     </fieldset>
 
     <fieldset>
