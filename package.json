@@ -2,7 +2,7 @@
   "name": "hangar",
   "productName": "Hangar",
   "version": "1.3.12",
-  "description": "Hangar : tes jeux Steam et Epic Games réunis, avec la frise de la semaine.",
+  "description": "Hangar : tous tes jeux PC (Steam, Epic, EA, Ubisoft, Xbox, GOG) réunis dans un seul launcher.",
   "author": "Mathis",
   "license": "UNLICENSED",
   "private": true,
