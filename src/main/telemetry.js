@@ -53,4 +53,20 @@ async function online() {
   return onlineCache.value;
 }
 
-module.exports = { start, leave, online, beat: () => ctx && beat() };
+// Formulaire « Donner mon avis » : le message part vers le site, qui l'envoie par mail.
+// Joint seulement la version de Hangar, de Windows et la langue, si la case est cochée.
+async function feedback({ kind, message, email, withInfo, version, lang }) {
+  const os = require('node:os');
+  const build = Number(os.release().split('.')[2]) || 0;
+  const info = withInfo ? { version, os: `${build >= 22000 ? '11' : '10'} (${os.release()})`, lang } : {};
+  try {
+    const res = await fetch(`${SITE}/api/feedback`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, message, email, ...info }), signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: res.status === 429 ? 'rate-limited' : res.status === 400 ? 'too-short' : 'server' };
+  } catch { return { ok: false, error: 'offline' }; }
+}
+
+module.exports = { start, leave, online, beat: () => ctx && beat(), feedback };

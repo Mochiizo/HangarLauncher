@@ -473,6 +473,13 @@ function registerIpc() {
     return { status: lib.status, games: lib.games.map((g) => ({ ...g, exes: undefined, installDir: undefined, favorite: !!fav[g.key] })) };
   });
   ipcMain.handle('online:get', () => telemetry.online());
+  ipcMain.handle('feedback:send', (_e, f) => {
+    const str = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+    return telemetry.feedback({
+      kind: str(f?.kind, 10), message: str(f?.message, 4000), email: str(f?.email, 200),
+      withInfo: !!f?.withInfo, version: app.getVersion(), lang: uiLang(),
+    });
+  });
   ipcMain.handle('week:get', async () => week((await loadLibrary()).status.demo));
   // Statistiques : temps joué jour par jour depuis le début du suivi
   ipcMain.handle('history:get', async () => {

@@ -942,3 +942,17 @@ body.nv-open { overflow: hidden; }
 @keyframes online-ping { from { transform: scale(.6); opacity: .9; } to { transform: scale(1.9); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .online-pill .dot::after { animation: none; } }
 @media (max-width: 1100px) { .online-pill { padding: 0 9px; } }
+
+/* ---- Formulaire « Donner mon avis » ---- */
+.feedback { width: min(520px, calc(100vw - 32px)); }
+.feedback form { gap: 12px; }
+.feedback label:not(.check) { margin-bottom: -6px; }
+.fb-kinds { display: flex; gap: 8px; flex-wrap: wrap; }
+.fb-kinds .pill[aria-checked="true"] { background: #F2F1EE; border-color: #F2F1EE; color: #0B0C10; }
+.feedback textarea, .feedback input[type="email"] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--edge); background: rgba(255,255,255,.05); color: var(--text); font: inherit; font-size: 14px; }
+.feedback textarea { resize: vertical; min-height: 120px; max-height: 320px; line-height: 1.5; }
+.feedback input[type="email"] { height: 40px; }
+.feedback textarea:focus, .feedback input[type="email"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fb-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.fb-error { color: #fca5a5; font-size: 13px; }
+.feedback .btn[disabled] { opacity: .6; cursor: progress; }

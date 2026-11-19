@@ -1764,6 +1764,68 @@ document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('clic
 }));
 $('#open-settings').addEventListener('click', openSettings);
 $('#refresh').addEventListener('click', () => load(true));
+
+// ---- Donner mon avis : formulaire envoyé par le site (mail), brouillon gardé tant qu'il n'est pas parti ----
+const FB_DRAFT = 'hangar.feedbackDraft';
+function fbKind() { return $('#feedback-dialog .fb-kinds [aria-checked="true"]')?.dataset.kind || 'idea'; }
+function fbSetKind(kind) {
+  for (const b of document.querySelectorAll('#feedback-dialog .fb-kinds .pill')) b.setAttribute('aria-checked', String(b.dataset.kind === kind));
+}
+function fbSaveDraft() {
+  try { localStorage.setItem(FB_DRAFT, JSON.stringify({ kind: fbKind(), message: $('#fb-message').value, email: $('#fb-email').value })); } catch { /* sans stockage */ }
+}
+function fbError(msg) { const e = $('#fb-error'); e.textContent = msg || ''; e.hidden = !msg; }
+function openFeedback() {
+  const d = $('#feedback-dialog');
+  try {
+    const draft = JSON.parse(localStorage.getItem(FB_DRAFT) || 'null');
+    if (draft) { fbSetKind(draft.kind); $('#fb-message').value = draft.message || ''; $('#fb-email').value = draft.email || ''; }
+  } catch { /* brouillon illisible : formulaire vide */ }
+  fbError('');
+  d.showModal();
+  $('#fb-message').focus();
+}
+$('#feedback-btn').addEventListener('click', openFeedback);
+$('#fb-cancel').addEventListener('click', () => { fbSaveDraft(); $('#feedback-dialog').close(); });
+$('#feedback-dialog').addEventListener('cancel', fbSaveDraft);
+$('#feedback-dialog .fb-kinds').addEventListener('click', (e) => {
+  const b = e.target.closest('.pill'); if (b) { fbSetKind(b.dataset.kind); fbSaveDraft(); }
+});
+$('#feedback-dialog .fb-kinds').addEventListener('keydown', (e) => {
+  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  const all = [...document.querySelectorAll('#feedback-dialog .fb-kinds .pill')];
+  const i = all.findIndex((b) => b.dataset.kind === fbKind());
+  const next = all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length];
+  fbSetKind(next.dataset.kind); next.focus(); e.preventDefault();
+});
+$('#fb-message').addEventListener('input', () => { fbError(''); fbSaveDraft(); });
+$('#fb-email').addEventListener('input', () => { fbError(''); fbSaveDraft(); });
+$('#fb-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const message = $('#fb-message').value.trim();
+  const email = $('#fb-email').value.trim();
+  if (message.length < 5) { fbError(t('Écris au moins quelques mots.')); $('#fb-message').focus(); return; }
+  if (email && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) { fbError(t("Cette adresse e-mail n'a pas l'air valide.")); $('#fb-email').focus(); return; }
+  if ($('#fb-website').value) return;
+  const send = $('#fb-send');
+  send.disabled = true; send.textContent = t('Envoi…');
+  const res = await api.sendFeedback({ kind: fbKind(), message, email, withInfo: $('#fb-info').checked })
+    .catch(() => ({ ok: false, error: 'server' }));
+  send.disabled = false; send.textContent = t('Envoyer');
+  if (res.ok) {
+    try { localStorage.removeItem(FB_DRAFT); } catch { /* sans stockage */ }
+    $('#fb-message').value = ''; fbSetKind('idea');
+    $('#feedback-dialog').close();
+    toast(t('Merci ! Ton message est bien parti.'));
+    return;
+  }
+  fbSaveDraft();
+  fbError(t(res.error === 'offline' ? 'Pas de connexion à Internet. Ton message est gardé, réessaie plus tard.'
+    : res.error === 'rate-limited' ? "Trop de messages d'un coup. Réessaie dans une heure."
+    : res.error === 'too-short' ? 'Écris au moins quelques mots.'
+    : "L'envoi n'a pas marché. Ton message est gardé, réessaie dans un moment."));
+});
+
 $('#search').addEventListener('input', (e) => { state.query = e.target.value; render(); });
 
 // ---------- Mise à jour de Hangar ----------

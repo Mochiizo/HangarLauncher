@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   library: (force) => ipcRenderer.invoke('library:get', force),
   week: () => ipcRenderer.invoke('week:get'),
   online: () => ipcRenderer.invoke('online:get'),
+  sendFeedback: (f) => ipcRenderer.invoke('feedback:send', f),
   history: () => ipcRenderer.invoke('history:get'),
   statsAchievements: (keys, since) => ipcRenderer.invoke('stats:achievements', keys, since),
   news: (appid) => ipcRenderer.invoke('news:get', appid),

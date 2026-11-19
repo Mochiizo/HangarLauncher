@@ -250,7 +250,20 @@ const EN = {
   'Calcul de tes statistiques…': 'Crunching your stats…', 'Pas encore de temps de jeu sur cette période': 'No playtime in this period yet',
   'Hangar compte ton temps de jeu jour par jour depuis le {d}. Les graphiques se remplissent au fil de tes parties.': 'Hangar has been counting your playtime day by day since {d}. The charts fill in as you play.',
   'Hangar commence à compter ton temps de jeu jour par jour. Les graphiques se remplissent au fil de tes parties.': 'Hangar is starting to count your playtime day by day. The charts fill in as you play.',
-  'Voir depuis le début': 'See all time'
+  'Voir depuis le début': 'See all time',
+  // ---- Formulaire « Donner mon avis » ----
+  'Un bug, une idée, un jeu qui manque ? Écris-moi directement ici, je lis tout.': 'A bug, an idea, a missing game? Write to me right here, I read everything.',
+  'Type de message': 'Message type', '🐞 Un bug': '🐞 A bug', '💡 Une idée': '💡 An idea', '💬 Autre chose': '💬 Something else',
+  'Ton message': 'Your message', 'Dis-moi ce qui se passe ou ce que tu aimerais voir dans Hangar…': 'Tell me what is happening or what you would like to see in Hangar…',
+  'Ton e-mail (facultatif, seulement si tu veux une réponse)': 'Your email (optional, only if you want a reply)', 'toi@exemple.com': 'you@example.com',
+  'Joindre la version de Hangar et de Windows (aide pour les bugs)': 'Include the Hangar and Windows versions (helps with bugs)',
+  'Envoyer': 'Send', 'Envoi…': 'Sending…',
+  'Merci ! Ton message est bien parti.': 'Thanks! Your message has been sent.',
+  'Écris au moins quelques mots.': 'Write at least a few words.',
+  "Cette adresse e-mail n'a pas l'air valide.": "This email address doesn't look valid.",
+  "Pas de connexion à Internet. Ton message est gardé, réessaie plus tard.": "No Internet connection. Your message is kept, try again later.",
+  "Trop de messages d'un coup. Réessaie dans une heure.": 'Too many messages at once. Try again in an hour.',
+  "L'envoi n'a pas marché. Ton message est gardé, réessaie dans un moment.": "Sending failed. Your message is kept, try again in a moment.",
 };
 
 // t('…', { n }) : texte traduit avec ses variables
