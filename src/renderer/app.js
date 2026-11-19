@@ -1765,6 +1765,159 @@ document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('clic
 $('#open-settings').addEventListener('click', openSettings);
 $('#refresh').addEventListener('click', () => load(true));
 
+// ---------- Recherche rapide (Ctrl+K) : un jeu ou une action depuis n'importe quelle page ----------
+const quick = { items: [], sel: 0 };
+const fold = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// Note d'un texte pour une recherche : début du titre > début d'un mot > initiales > n'importe où > lettres dans l'ordre
+function qkScore(text, q) {
+  const f = fold(text);
+  if (!q) return { score: 1, at: -1 };
+  if (f.startsWith(q)) return { score: 100, at: 0 };
+  const words = [...f.matchAll(/[\p{L}\p{N}]+/gu)];
+  const w = words.find((m) => m[0].startsWith(q));
+  if (w) return { score: 80, at: w.index };
+  const initials = words.map((m) => m[0][0]).join('');
+  if (initials.startsWith(q.replace(/\s+/g, ''))) return { score: 70, at: -1 };
+  const i = f.indexOf(q);
+  if (i >= 0) return { score: 50, at: i };
+  let k = 0;
+  for (const c of f) if (c === q[k]) k++;
+  return k === q.length && q.length > 2 ? { score: 20, at: -1 } : null;
+}
+// Titre avec la partie trouvée en surbrillance (les titres ne passent pas par la traduction)
+function qkTitle(title, at, len) {
+  if (at < 0 || !len) return el('span', { class: 'qk-t no-tr' }, title);
+  return el('span', { class: 'qk-t no-tr' }, title.slice(0, at), el('mark', {}, title.slice(at, at + len)), title.slice(at + len));
+}
+const QK_ACTIONS = () => [
+  { label: 'Accueil', hint: 'Va dans l’onglet Accueil', icon: '🏠', words: 'home accueil', run: () => setView('home') },
+  { label: 'Bibliothèque', hint: 'Va dans l’onglet Bibliothèque', icon: '📚', words: 'library bibliotheque jeux', run: () => setView('library') },
+  { label: 'Statistiques', hint: 'Va dans l’onglet Statistiques', icon: '📊', words: 'stats statistics statistiques', run: () => setView('stats') },
+  { label: 'Ajouter un jeu', hint: 'Ajoute un jeu installé sans launcher', icon: '➕', words: 'add ajouter jeu', run: () => { setView('library'); addGame(); } },
+  { label: 'Actualiser la bibliothèque', hint: 'Cherche les nouveaux jeux installés', icon: '🔄', words: 'refresh actualiser recharger', run: () => load(true) },
+  { label: 'Donner mon avis', hint: 'Ouvre le formulaire', icon: '💬', words: 'feedback avis bug idee', run: () => openFeedback() },
+  { label: 'Réglages', hint: 'Ouvre les réglages de Hangar', icon: '⚙️', words: 'settings reglages parametres options', run: () => openSettings() },
+];
+
+function qkGameAction(g) {
+  if (state.running.has(g.key)) return { label: 'En jeu', run: () => select(g.key) };
+  if (g.source === 'custom' && !g.installed) return { label: 'Voir la fiche', run: () => select(g.key) };
+  if (g.installed) return { label: 'Jouer', play: true, run: () => (g.launchUrl || g.canPlay ? play(g) : select(g.key)) };
+  return { label: 'Installer', run: () => (g.installUrl ? api.launch(g.key, 'install') : select(g.key)) };
+}
+
+function qkSearch(raw) {
+  const q = fold(raw.trim());
+  let games;
+  if (!q) {
+    games = state.games.filter((g) => g.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 5).map((g) => ({ g, at: -1 }));
+  } else {
+    games = state.games.map((g) => ({ g, m: qkScore(g.title, q) })).filter((x) => x.m)
+      .sort((a, b) => b.m.score - a.m.score || b.g.lastPlayed - a.g.lastPlayed || b.g.minutes - a.g.minutes)
+      .slice(0, 7).map((x) => ({ g: x.g, at: x.m.at }));
+  }
+  const actions = QK_ACTIONS().map((a) => {
+    const label = t(a.label);
+    const good = (m) => (m && m.score >= 50 ? m : null); // pas de lettres éparpillées pour les actions
+    const m = q ? (good(qkScore(label, q)) || good(qkScore(a.words, q))) : null;
+    return { a, label, at: m && fold(label).startsWith(q) ? 0 : -1, m };
+  }).filter((x) => !q || x.m).slice(0, q ? 4 : 3);
+  return { q, games, actions };
+}
+
+function qkRender() {
+  const raw = $('#qk-input').value;
+  const { q, games, actions } = qkSearch(raw);
+  const list = $('#qk-list');
+  quick.items = [];
+  const rows = [];
+  const add = (node, run, alt) => {
+    const i = quick.items.length;
+    quick.items.push({ run, alt });
+    node.id = `qk-${i}`;
+    node.setAttribute('role', 'option');
+    node.addEventListener('mousemove', () => { if (quick.sel !== i) qkSelect(i, false); });
+    node.addEventListener('click', (e) => { e.preventDefault(); qkRun(i, e.ctrlKey); });
+    rows.push(node);
+  };
+  if (games.length) {
+    rows.push(el('div', { class: 'qk-h', role: 'presentation' }, q ? 'Jeux' : 'Récents'));
+    for (const { g, at } of games) {
+      const act = qkGameAction(g);
+      const meta = [
+        el('span', { class: 'qk-badge' }, SOURCES[g.source]?.name || ''),
+        state.running.has(g.key) ? el('span', { class: 'qk-live' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'En jeu')
+          : g.source === 'custom' && !g.installed ? el('span', {}, 'Fichier introuvable')
+          : !g.installed ? el('span', {}, 'Non installé')
+          : g.minutes >= 60 ? el('span', {}, t('{h} h jouées', { h: Math.round(g.minutes / 60) }))
+          : g.minutes > 0 ? el('span', {}, t('{m} min jouées', { m: g.minutes })) : null,
+        g.installed && g.lastPlayed ? el('span', { class: 'qk-dim' }, `· ${LANG === 'fr' ? relative(g.lastPlayed).toLowerCase() : relative(g.lastPlayed)}`) : null,
+      ];
+      add(el('div', { class: 'qk-row' },
+        el('span', { class: 'qk-art' }, art(g, ['header', 'cover'])),
+        el('span', { class: 'qk-txt' }, qkTitle(g.title, at, q.length), el('span', { class: 'qk-m' }, meta)),
+        el('span', { class: `qk-go${act.play ? ' play' : ''}` }, act.play ? svg(ICONS.play) : null, act.label, el('kbd', {}, '↵'))),
+      act.run, () => select(g.key));
+    }
+  }
+  if (actions.length) {
+    rows.push(el('div', { class: 'qk-h', role: 'presentation' }, 'Actions'));
+    for (const { a, label, at } of actions) {
+      add(el('div', { class: 'qk-row' },
+        el('span', { class: 'qk-ico', 'aria-hidden': 'true' }, a.icon),
+        el('span', { class: 'qk-txt' }, at === 0 ? el('span', { class: 'qk-t' }, el('mark', {}, label.slice(0, q.length)), label.slice(q.length)) : el('span', { class: 'qk-t' }, label), el('span', { class: 'qk-m' }, a.hint)),
+        el('span', { class: 'qk-go' }, 'Ouvrir', el('kbd', {}, '↵'))),
+      a.run, a.run);
+    }
+  }
+  if (!rows.length) rows.push(el('div', { class: 'qk-empty' }, t('Aucun jeu ni action pour « {q} »', { q: raw.trim() })));
+  list.replaceChildren(...rows);
+  qkSelect(0, false);
+}
+
+function qkSelect(i, scroll = true) {
+  const n = quick.items.length;
+  if (!n) { $('#qk-input').removeAttribute('aria-activedescendant'); return; }
+  quick.sel = (i + n) % n;
+  document.querySelectorAll('#qk-list .qk-row').forEach((r, k) => { r.classList.toggle('sel', k === quick.sel); r.setAttribute('aria-selected', String(k === quick.sel)); });
+  $('#qk-input').setAttribute('aria-activedescendant', `qk-${quick.sel}`);
+  if (scroll) $(`#qk-${quick.sel}`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function qkRun(i, alt = false) {
+  const it = quick.items[i];
+  if (!it) return;
+  $('#quick').close();
+  (alt ? it.alt : it.run)();
+}
+
+function openQuick() {
+  const d = $('#quick');
+  if (d.open) { $('#qk-input').select(); return; }
+  if (document.querySelector('dialog[open]') || newsViewer.ui?.wrap.isConnected) return;
+  $('#qk-input').value = '';
+  qkRender();
+  d.showModal();
+  $('#qk-input').focus();
+}
+$('#qk-open').addEventListener('click', openQuick);
+$('#qk-input').addEventListener('input', qkRender);
+$('#qk-input').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); qkSelect(quick.sel + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); qkSelect(quick.sel - 1); }
+  else if (e.key === 'PageDown' || e.key === 'End' && e.ctrlKey) { e.preventDefault(); qkSelect(quick.items.length - 1); }
+  else if (e.key === 'PageUp' || e.key === 'Home' && e.ctrlKey) { e.preventDefault(); qkSelect(0); }
+  else if (e.key === 'Enter') { e.preventDefault(); qkRun(quick.sel, e.ctrlKey); }
+});
+// Clic à côté de la fenêtre : elle se ferme
+$('#quick').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if ($('#quick').open) $('#quick').close(); else openQuick();
+  }
+});
+
 // ---- Donner mon avis : formulaire envoyé par le site (mail), brouillon gardé tant qu'il n'est pas parti ----
 const FB_DRAFT = 'hangar.feedbackDraft';
 function fbKind() { return $('#feedback-dialog .fb-kinds [aria-checked="true"]')?.dataset.kind || 'idea'; }

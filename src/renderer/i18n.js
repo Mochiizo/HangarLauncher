@@ -264,6 +264,19 @@ const EN = {
   "Pas de connexion à Internet. Ton message est gardé, réessaie plus tard.": "No Internet connection. Your message is kept, try again later.",
   "Trop de messages d'un coup. Réessaie dans une heure.": 'Too many messages at once. Try again in an hour.',
   "L'envoi n'a pas marché. Ton message est gardé, réessaie dans un moment.": "Sending failed. Your message is kept, try again in a moment.",
+  // ---- Recherche rapide (Ctrl+K) ----
+  'Résultats': 'Results', 'Recherche rapide': 'Quick search', 'Recherche rapide (Ctrl+K)': 'Quick search (Ctrl+K)', 'Rechercher': 'Search',
+  'Cherche un jeu ou une action…': 'Search for a game or an action…', 'Échap': 'Esc',
+  'Jeux': 'Games', 'Récents': 'Recent', 'Actions': 'Actions',
+  '{h} h jouées': '{h} h played', '{m} min jouées': '{m} min played', 'En jeu': 'Playing', 'Lancement…': 'Launching…',
+  'Non installé': 'Not installed', 'Fichier introuvable': 'File not found',
+  'Jouer': 'Play', 'Installer': 'Install', 'Voir la fiche': 'View details', 'Ouvrir': 'Open',
+  'naviguer': 'navigate', 'valider': 'select', 'voir la fiche': 'view details', 'fermer': 'close',
+  'Aucun jeu ni action pour « {q} »': 'No game or action for "{q}"',
+  'Va dans l’onglet Accueil': 'Go to the Home tab', 'Va dans l’onglet Bibliothèque': 'Go to the Library tab', 'Va dans l’onglet Statistiques': 'Go to the Statistics tab',
+  'Ouvre les réglages de Hangar': 'Open Hangar settings', 'Ajoute un jeu installé sans launcher': 'Add a game installed without a launcher',
+  'Ouvre le formulaire': 'Open the form', 'Cherche les nouveaux jeux installés': 'Look for newly installed games',
+  'Actualiser la bibliothèque': 'Refresh library', 'Réglages': 'Settings',
 };
 
 // t('…', { n }) : texte traduit avec ses variables
@@ -340,10 +353,10 @@ if (LANG === 'en') {
   const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE']);
   function walk(root) {
     if (root.nodeType === Node.TEXT_NODE) return translateText(root);
-    if (root.nodeType !== Node.ELEMENT_NODE || SKIP.has(root.tagName) || root.closest?.('#wn-notes, .nv-body')) return;
+    if (root.nodeType !== Node.ELEMENT_NODE || SKIP.has(root.tagName) || root.closest?.('#wn-notes, .nv-body, .no-tr')) return;
     translateEl(root);
     const it = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && (SKIP.has(n.tagName) || n.id === 'wn-notes' || n.classList.contains('nv-body')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && (SKIP.has(n.tagName) || n.id === 'wn-notes' || n.classList.contains('nv-body') || n.classList.contains('no-tr')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
     });
     for (let n = it.nextNode(); n; n = it.nextNode()) { if (n.nodeType === Node.TEXT_NODE) translateText(n); else translateEl(n); }
   }

@@ -956,3 +956,45 @@ body.nv-open { overflow: hidden; }
 .fb-trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 .fb-error { color: #fca5a5; font-size: 13px; }
 .feedback .btn[disabled] { opacity: .6; cursor: progress; }
+
+/* ---- Recherche rapide (Ctrl+K) ---- */
+.qk-open { height: 44px; display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; border-radius: 12px; border: 1px solid var(--edge); background: var(--glass-2); color: var(--text-2); font: 500 13.5px var(--sans, Inter, sans-serif); transition: background .2s, color .2s, border-color .2s; }
+.qk-open:hover { background: var(--glass-hi); color: var(--text); }
+.qk-open-label { min-width: 70px; text-align: left; }
+.qk-keys { display: inline-flex; gap: 3px; }
+.qk-open kbd, .quick kbd { font: 600 11px Inter, sans-serif; color: var(--text-2); border: 1px solid rgba(255,255,255,.16); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; background: rgba(255,255,255,.05); line-height: 1.5; }
+@media (max-width: 1320px) { .qk-open { width: 44px; padding: 0; justify-content: center; } .qk-open-label, .qk-keys { display: none; } }
+
+.quick { width: min(680px, calc(100vw - 48px)); max-height: min(620px, calc(100vh - 120px)); margin: 11vh auto auto; padding: 0; border-radius: 20px; border: 1px solid rgba(255,255,255,.13); background: rgba(18,20,27,.95); backdrop-filter: blur(30px); color: var(--text); box-shadow: 0 40px 120px -20px rgba(0,0,0,.9); overflow: hidden; display: none; flex-direction: column; }
+.quick[open] { display: flex; animation: qk-in .16s ease-out; }
+.quick::backdrop { background: rgba(5,6,9,.55); backdrop-filter: blur(8px); }
+@keyframes qk-in { from { opacity: 0; transform: translateY(-8px) scale(.985); } }
+.qk-in { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,.08); color: var(--accent); }
+.qk-in input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: 500 19px Inter, sans-serif; caret-color: var(--accent); }
+.qk-in input::placeholder { color: #6B6F79; }
+.qk-list { overflow-y: auto; padding: 6px 12px 10px; overscroll-behavior: contain; }
+.qk-h { font: 700 11px Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #6B6F79; padding: 12px 10px 6px; }
+.qk-row { display: flex; align-items: center; gap: 14px; padding: 8px 10px; border-radius: 12px; cursor: pointer; }
+.qk-row.sel { background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.qk-art { width: 92px; height: 43px; border-radius: 7px; overflow: hidden; flex: none; position: relative; }
+.qk-art .art { position: absolute; inset: 0; border-radius: 7px; }
+.qk-art .art-text .t { display: none; }
+.qk-ico { width: 43px; height: 43px; border-radius: 10px; display: grid; place-items: center; font-size: 19px; background: rgba(255,255,255,.06); flex: none; }
+.qk-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.qk-t { font: 600 15px Inter, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qk-t mark { background: none; color: #F6C463; font-weight: 800; }
+.qk-m { display: flex; gap: 8px; align-items: center; font: 500 12.5px Inter, sans-serif; color: #8B8F99; white-space: nowrap; overflow: hidden; }
+.qk-badge { font: 700 10.5px Inter, sans-serif; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.08); color: #CFCDC8; }
+.qk-live { display: inline-flex; align-items: center; gap: 6px; color: #86efac; }
+.qk-go { margin-left: auto; display: none; align-items: center; gap: 8px; font: 700 12.5px Inter, sans-serif; color: var(--text-2); padding: 7px 10px 7px 12px; border-radius: 9px; background: rgba(255,255,255,.07); flex: none; }
+.qk-row.sel .qk-go { display: inline-flex; }
+.qk-go.play { color: #1A1305; background: linear-gradient(180deg, #F6C463, #E8A93B); }
+.qk-go.play kbd { color: #1A1305; border-color: rgba(0,0,0,.25); background: rgba(0,0,0,.08); }
+.qk-go svg { width: 12px; height: 12px; }
+.qk-empty { padding: 34px 10px; text-align: center; color: #8B8F99; font: 500 14px Inter, sans-serif; }
+.qk-foot { display: flex; gap: 18px; align-items: center; padding: 11px 22px; border-top: 1px solid rgba(255,255,255,.08); font: 500 12px Inter, sans-serif; color: #8B8F99; background: rgba(0,0,0,.18); }
+.qk-foot span { display: inline-flex; gap: 5px; align-items: center; }
+.qk-foot-end { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { .quick[open] { animation: none; } }
+#count { white-space: nowrap; }
+@media (max-width: 1240px) { #count { display: none; } }
