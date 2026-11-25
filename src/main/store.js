@@ -1,5 +1,5 @@
 // Données locales de l'utilisateur (dossier userData de l'appli) :
-// réglages, snapshots quotidiens du temps de jeu, sessions suivies, favoris.
+// réglages, snapshots quotidiens du temps de jeu, sessions suivies, favoris, collections.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,6 +12,7 @@ const empty = () => ({
   epicTotals: {},  // { "epic-Foo": minutes }
   epicLast: {},    // { "epic-Foo": timestampMs }
   favorites: {},
+  collections: [],  // [{ id, name, emoji, games: [gameKey…] }] collections perso, dans l'ordre de création
   nameCache: {},
   assetCache: {},   // { appid: { at, cover, hero, header } } images boutique Steam
   titleCache: {},   // { nomNormalisé: { at, appid } } jeux Ubisoft/EA/Xbox retrouvés sur Steam (images)
@@ -82,6 +83,26 @@ function createStore(dir) {
     },
 
     epicStats: (key) => ({ minutes: db.epicTotals[key] || 0, lastPlayed: db.epicLast[key] || 0 }),
+
+    // ---- Collections perso ----
+    collections: () => db.collections,
+    saveCollection({ id, name, emoji, add }) {
+      name = String(name || '').trim().slice(0, 40);
+      emoji = String(emoji || '📁').slice(0, 8);
+      if (!name) return db.collections;
+      const found = id && db.collections.find((c) => c.id === id);
+      if (found) Object.assign(found, { name, emoji });
+      else db.collections.push({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, emoji, games: add ? [String(add)] : [] });
+      save();
+      return db.collections;
+    },
+    deleteCollection(id) { db.collections = db.collections.filter((c) => c.id !== id); save(); return db.collections; },
+    toggleInCollection(id, key) {
+      const c = db.collections.find((x) => x.id === id);
+      if (c) { c.games = c.games.includes(key) ? c.games.filter((k) => k !== key) : [...c.games, key]; save(); }
+      return db.collections;
+    },
+    forgetGame(key) { for (const c of db.collections) c.games = c.games.filter((k) => k !== key); },
 
     toggleFavorite(key) { if (db.favorites[key]) delete db.favorites[key]; else db.favorites[key] = true; save(); return !!db.favorites[key]; },
 

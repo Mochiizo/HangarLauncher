@@ -277,6 +277,18 @@ const EN = {
   'Ouvre les réglages de Hangar': 'Open Hangar settings', 'Ajoute un jeu installé sans launcher': 'Add a game installed without a launcher',
   'Ouvre le formulaire': 'Open the form', 'Cherche les nouveaux jeux installés': 'Look for newly installed games',
   'Actualiser la bibliothèque': 'Refresh library', 'Réglages': 'Settings',
+  // ---- Collections ----
+  'Mes collections': 'My collections', 'Nouvelle collection': 'New collection', 'Nouvelle collection…': 'New collection…',
+  'Range tes jeux comme tu veux. Un clic pour commencer :': 'Sort your games your way. One click to start:',
+  'Options de « {c} »': 'Options for "{c}"', 'Renommer ou supprimer': 'Rename or delete', 'Renommer': 'Rename', 'Supprimer': 'Delete',
+  'Ranger dans une collection': 'Add to a collection', 'Ranger {g} dans…': 'Put {g} in…',
+  'Modifier la collection': 'Edit collection', 'Créer': 'Create', 'Nom': 'Name', 'Icône': 'Icon',
+  'En cours, À finir, Coop avec potes…': 'Playing, Backlog, Co-op with friends…',
+  'Donne un nom à ta collection.': 'Give your collection a name.', 'Tu as déjà une collection avec ce nom.': 'You already have a collection with this name.',
+  '{g} est rangé dans « {c} ».': '{g} was added to "{c}".', 'Supprimer « {c} » ?': 'Delete "{c}"?', 'Supprimer cette collection ?': 'Delete this collection?',
+  'Les jeux ne sont pas supprimés : ils sont seulement retirés de cette collection.': 'Your games are not deleted: they are only removed from this collection.',
+  'Cette collection est vide. Ouvre un jeu et clique sur « Collections » pour l’y ranger.': 'This collection is empty. Open a game and click "Collections" to add it.',
+  'Range tes jeux comme tu veux': 'Sort your games your way',
 };
 
 // t('…', { n }) : texte traduit avec ses variables

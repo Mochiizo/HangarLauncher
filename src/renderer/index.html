@@ -79,6 +79,7 @@
       </div>
       <div class="pills" id="filters"></div>
       <div class="pills" id="sources"></div>
+      <section class="cols" id="collections" aria-label="Mes collections"></section>
       <button type="button" class="add-game" id="add-game">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         Ajouter un jeu
@@ -249,6 +250,32 @@
   <div class="qk-foot" aria-hidden="true">
     <span><kbd>↑</kbd><kbd>↓</kbd> naviguer</span><span><kbd>↵</kbd> valider</span><span><kbd>Ctrl</kbd><kbd>↵</kbd> voir la fiche</span><span class="qk-foot-end"><kbd>Échap</kbd> fermer</span>
   </div>
+</dialog>
+
+<dialog id="col-dialog" class="settings confirm col-dialog" aria-labelledby="cd-title">
+  <form id="cd-form" novalidate>
+    <h2 id="cd-title">Nouvelle collection</h2>
+    <label for="cd-name">Nom</label>
+    <input type="text" id="cd-name" maxlength="40" autocomplete="off" placeholder="En cours, À finir, Coop avec potes…">
+    <span class="cd-lab" id="cd-emoji-lab">Icône</span>
+    <div class="cd-emojis" id="cd-emojis" role="radiogroup" aria-labelledby="cd-emoji-lab"></div>
+    <p class="fb-error" id="cd-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="pill" id="cd-cancel">Annuler</button>
+      <button type="submit" class="btn btn-play" id="cd-save">Créer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="col-delete" class="settings confirm">
+  <form method="dialog">
+    <h2 id="cdel-title">Supprimer cette collection ?</h2>
+    <p class="muted" id="cdel-text">Les jeux ne sont pas supprimés : ils sont seulement retirés de cette collection.</p>
+    <div class="dialog-actions">
+      <button type="submit" class="pill" value="cancel">Annuler</button>
+      <button type="submit" class="btn btn-danger" value="ok">Supprimer</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="feedback-dialog" class="settings confirm feedback" aria-labelledby="fb-title">

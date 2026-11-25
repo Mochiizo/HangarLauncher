@@ -514,6 +514,10 @@ function registerIpc() {
     try { return { items: await steamNews(appid) }; } catch (e) { return { items: [], error: e.message }; }
   });
   ipcMain.handle('favorite:toggle', (_e, key) => store.toggleFavorite(String(key)));
+  ipcMain.handle('collections:get', () => store.collections());
+  ipcMain.handle('collections:save', (_e, c) => store.saveCollection({ id: c?.id ? String(c.id) : '', name: c?.name, emoji: c?.emoji, add: c?.add }));
+  ipcMain.handle('collections:delete', (_e, id) => store.deleteCollection(String(id)));
+  ipcMain.handle('collections:toggle', (_e, id, key) => store.toggleInCollection(String(id), String(key)));
   ipcMain.handle('game:launch', (_e, key, action) => {
     const act = ['install', 'update', 'uninstall'].includes(action) ? action : 'play';
     const r = launchGame(String(key), act);
@@ -587,6 +591,7 @@ function registerIpc() {
     if (cover) fs.rmSync(path.join(coversDir(), path.basename(cover)), { force: true });
     delete store.db.customCovers[key];
     delete store.db.favorites[key];
+    store.forgetGame(key);
     store.save();
     await loadLibrary(true);
     return true;

@@ -2,7 +2,7 @@
 /* global api */
 const $ = (sel) => document.querySelector(sel);
 
-const state = { games: [], status: {}, week: null, updates: {}, running: new Set(), launching: {}, filter: 'all', source: 'all', sort: 'recent', query: '', selected: null, view: 'home' };
+const state = { games: [], status: {}, week: null, updates: {}, running: new Set(), launching: {}, filter: 'all', source: 'all', collection: null, collections: [], sort: 'recent', query: '', selected: null, view: 'home' };
 
 // ---------- Formatage ----------
 const nf = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
@@ -51,6 +51,7 @@ const SOURCES = {
   custom: { name: 'Ajoutés', long: 'Jeux ajoutés', chip: 'PC' }
 };
 const ICONS = {
+  collection: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h11M4 12h11M4 18h7"/><path d="M19 14v8M15 18h8"/></svg>',
   update: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/></svg>',
   image: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>',
   undo: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>',
@@ -86,7 +87,9 @@ function art(game, order = ['cover', 'header']) {
 const byKey = () => new Map(state.games.map((g) => [g.key, g]));
 function visibleGames() {
   const q = state.query.trim().toLocaleLowerCase('fr');
+  const inCol = state.collection ? new Set(currentCollection()?.games || []) : null;
   const list = state.games.filter((g) =>
+    (!inCol || inCol.has(g.key)) &&
     (state.filter === 'all' || (state.filter === 'installed' && g.installed) || (state.filter === 'fav' && g.favorite)) &&
     (state.source === 'all' || g.source === state.source) &&
     (!q || g.title.toLocaleLowerCase('fr').includes(q)));
@@ -119,16 +122,23 @@ function pills(container, defs, current, onPick) {
 function renderSidebar(list) {
   // La colonne de gauche reste toujours triée par ordre alphabétique (le tri choisi ne s'applique qu'à la grille)
   list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base', numeric: true }));
-  pills($('#filters'), [['all', 'Tous'], ['installed', 'Installés'], ['fav', 'Favoris']], state.filter, (v) => { state.filter = v; render(); });
+  pills($('#filters'), [['all', 'Tous'], ['installed', 'Installés'], ['fav', 'Favoris']], state.collection ? null : state.filter, (v) => { state.filter = v; state.collection = null; render(); });
   // Toutes les plateformes sont toujours proposées, même sans jeu (le filtre explique alors pourquoi c'est vide)
   const present = Object.entries(SOURCES);
   const srcBox = $('#sources');
   srcBox.hidden = !!state.status.demo;
-  if (!srcBox.hidden) pills(srcBox, [['all', 'Toutes plateformes'], ...present.map(([id, s]) => [id, s.name])], state.source, (v) => { state.source = v; render(); });
+  if (!srcBox.hidden) pills(srcBox, [['all', 'Toutes plateformes'], ...present.map(([id, s]) => [id, s.name])], state.collection ? null : state.source, (v) => { state.source = v; state.collection = null; render(); });
+  renderCollections();
 
   const names = { all: 'Tous les jeux', installed: 'Jeux installés', fav: 'Favoris' };
-  $('#list-title').textContent = `${names[state.filter]} (${list.length})`;
-  $('#grid-title').textContent = names[state.filter];
+  const col = currentCollection();
+  if (col) {
+    $('#list-title').replaceChildren(`${col.emoji} `, el('span', { class: 'no-tr' }, col.name), ` (${list.length})`);
+    $('#grid-title').replaceChildren(`${col.emoji} `, el('span', { class: 'no-tr' }, col.name));
+  } else {
+    $('#list-title').textContent = `${names[state.filter]} (${list.length})`;
+    $('#grid-title').textContent = names[state.filter];
+  }
   const sel = selectedGame();
   $('#game-list').replaceChildren(...(list.length ? list.map((g) => el('li', {},
     el('button', { type: 'button', class: 'row' + (g.installed ? '' : ' not-installed'), 'aria-current': String(g.key === sel?.key), onclick: () => select(g.key) },
@@ -280,13 +290,18 @@ function renderHero(g) {
     type: 'button', class: 'btn-ghost', 'aria-label': g.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
     onclick: async () => { g.favorite = await api.toggleFavorite(g.key); render(); }
   }, svg(ICONS.star(g.favorite)));
+  const inCount = state.collections.filter((c) => c.games.includes(g.key)).length;
+  const colBtn = el('button', {
+    type: 'button', class: 'btn-ghost btn-ghost-label', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+    title: 'Ranger dans une collection', onclick: (e) => openColMenu(g, e.currentTarget)
+  }, svg(ICONS.collection), el('span', {}, 'Collections'), inCount ? el('span', { class: 'col-count' }, String(inCount)) : null);
   hero.replaceChildren(
     art(g, ['hero', 'header', 'cover']),
     el('div', { class: 'hero-inner' },
       el('div', { style: 'display:flex;flex-direction:column;gap:8px' },
         el('span', { class: 'kicker' }, SOURCES[g.source]?.long || ''),
         el('h1', {}, g.title)),
-      el('div', { class: 'hero-actions' }, action, (needsUpdate || updating) ? updateBlock(g, u) : null, fav, coverBtn, resetBtn, uninstallBtn)));
+      el('div', { class: 'hero-actions' }, action, (needsUpdate || updating) ? updateBlock(g, u) : null, colBtn, fav, coverBtn, resetBtn, uninstallBtn)));
 }
 
 function renderStats(g) {
@@ -694,6 +709,7 @@ function renderWeek(sel) {
 
 // Message quand la liste est vide : une plateforme sans jeu sur ce PC, ou une recherche sans résultat
 function emptyText() {
+  if (state.collection) return 'Cette collection est vide. Ouvre un jeu et clique sur « Collections » pour l’y ranger.';
   const src = SOURCES[state.source];
   if (state.source === 'custom' && !state.games.some((g) => g.source === 'custom')) {
     return "Aucun jeu ajouté pour l'instant. Clique sur « Ajouter un jeu » pour ajouter un jeu installé sans launcher (Roblox, Soulframe…).";
@@ -1720,6 +1736,8 @@ async function load(force = false) {
     const lib = await api.library(force);
     state.games = lib.games;
     state.status = lib.status;
+    state.collections = await api.collections().catch(() => []);
+    if (state.collection && !currentCollection()) state.collection = null;
     state.week = await api.week();
     statsState.history = null; // recalculé à l'affichage de l'onglet Statistiques
     state.updates = await api.updates().catch(() => ({}));
@@ -1765,6 +1783,157 @@ document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('clic
 $('#open-settings').addEventListener('click', openSettings);
 $('#refresh').addEventListener('click', () => load(true));
 
+// ---------- Collections perso (« En cours », « À finir », « Coop avec potes »…) ----------
+const COL_EMOJIS = ['▶️', '⏳', '🏆', '👥', '🎮', '⭐', '❤️', '🔥', '🧩', '⚔️', '🚀', '🌙', '🎯', '📌', '🛋️', '📁'];
+const COL_SUGGEST = [['▶️', 'En cours', 'Playing'], ['⏳', 'À finir', 'Backlog'], ['👥', 'Coop avec potes', 'Co-op with friends'], ['🏆', 'Terminés', 'Completed']];
+const currentCollection = () => state.collections.find((c) => c.id === state.collection) || null;
+const colCount = (c) => { const have = new Set(state.games.map((g) => g.key)); return c.games.filter((k) => have.has(k)).length; };
+
+function showCollection(id) {
+  state.collection = state.collection === id ? null : id;
+  if (state.collection) { state.filter = 'all'; state.source = 'all'; }
+  if (state.view !== 'library') setView('library', false);
+  const first = visibleGames()[0];
+  if (state.collection && first && !currentCollection().games.includes(state.selected)) state.selected = first.key;
+  render();
+}
+
+function renderCollections() {
+  const box = $('#collections');
+  const head = el('div', { class: 'cols-h' },
+    el('span', {}, 'Mes collections'),
+    el('button', { type: 'button', class: 'cols-add', 'aria-label': 'Nouvelle collection', title: 'Nouvelle collection', onclick: () => editCollection() }, '+'));
+  if (!state.collections.length) {
+    box.replaceChildren(head,
+      el('p', { class: 'cols-empty' }, 'Range tes jeux comme tu veux. Un clic pour commencer :'),
+      el('div', { class: 'cols-suggest' }, ...COL_SUGGEST.map(([e, fr, en]) => {
+        const n = LANG === 'en' ? en : fr;
+        return el('button', { type: 'button', class: 'pill no-tr', onclick: async () => { state.collections = await api.saveCollection({ name: n, emoji: e }); render(); } }, `${e} ${n}`);
+      })));
+    return;
+  }
+  box.replaceChildren(head, ...state.collections.map((c) => el('div', { class: 'col-item' },
+    el('button', { type: 'button', class: 'col-row', 'aria-pressed': String(state.collection === c.id), onclick: () => showCollection(c.id) },
+      el('span', { class: 'col-e', 'aria-hidden': 'true' }, c.emoji), el('span', { class: 'col-n no-tr' }, c.name), el('span', { class: 'col-c' }, String(colCount(c)))),
+    el('button', { type: 'button', class: 'col-more', 'aria-label': t('Options de « {c} »', { c: c.name }), title: 'Renommer ou supprimer', 'aria-haspopup': 'menu', onclick: (e) => openColOptions(c, e.currentTarget) },
+      el('span', { 'aria-hidden': 'true' }, '⋯')))));
+}
+
+// Petit menu flottant (choix des collections d'un jeu, ou options d'une collection)
+let popMenu = null;
+function closePop() {
+  if (!popMenu) return;
+  popMenu.anchor.setAttribute('aria-expanded', 'false');
+  popMenu.node.remove();
+  document.removeEventListener('pointerdown', popMenu.outside, true);
+  document.removeEventListener('keydown', popMenu.keys, true);
+  const a = popMenu.anchor; popMenu = null;
+  if (a.isConnected) a.focus();
+}
+function openPop(anchor, items, title) {
+  closePop();
+  const node = el('div', { class: 'col-pop', role: 'menu', 'aria-label': title }, title ? el('div', { class: 'col-pop-t', 'aria-hidden': 'true' }, title) : null, ...items);
+  document.body.append(node);
+  const r = anchor.getBoundingClientRect();
+  const w = node.offsetWidth, h = node.offsetHeight;
+  node.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+  node.style.top = `${r.bottom + 8 + h > innerHeight - 8 ? Math.max(8, r.top - h - 8) : r.bottom + 8}px`;
+  anchor.setAttribute('aria-expanded', 'true');
+  const outside = (e) => { if (!node.contains(e.target) && !anchor.contains(e.target)) closePop(); };
+  const keys = (e) => {
+    const its = [...node.querySelectorAll('[role^="menuitem"]')];
+    const i = its.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); its[(i + 1) % its.length]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); its[(i - 1 + its.length) % its.length]?.focus(); }
+    else if (e.key === 'Tab') closePop();
+  };
+  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('keydown', keys, true);
+  popMenu = { node, anchor, outside, keys };
+  node.querySelector('[role^="menuitem"]')?.focus();
+}
+
+function openColMenu(g, anchor) {
+  if (popMenu?.anchor === anchor) return closePop();
+  const item = (c) => {
+    const on = c.games.includes(g.key);
+    return el('button', {
+      type: 'button', class: 'col-pop-i', role: 'menuitemcheckbox', 'aria-checked': String(on),
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        state.collections = await api.toggleInCollection(c.id, g.key);
+        const now = state.collections.find((x) => x.id === c.id)?.games.includes(g.key);
+        b.setAttribute('aria-checked', String(!!now));
+        b.querySelector('.cbx').textContent = now ? '✓' : '';
+        renderSidebar(visibleGames());
+        const cnt = anchor.querySelector('.col-count'); const n = state.collections.filter((x) => x.games.includes(g.key)).length;
+        if (n && cnt) cnt.textContent = String(n); else if (n) anchor.append(el('span', { class: 'col-count' }, String(n))); else cnt?.remove();
+      }
+    }, el('span', { class: 'cbx', 'aria-hidden': 'true' }, on ? '✓' : ''), el('span', { 'aria-hidden': 'true' }, c.emoji), el('span', { class: 'no-tr' }, c.name));
+  };
+  openPop(anchor, [
+    ...state.collections.map(item),
+    el('button', { type: 'button', class: 'col-pop-i col-pop-new', role: 'menuitem', onclick: () => { closePop(); editCollection(null, g); } }, '＋ ', 'Nouvelle collection…'),
+  ], t('Ranger {g} dans…', { g: g.title }));
+}
+
+function openColOptions(c, anchor) {
+  if (popMenu?.anchor === anchor) return closePop();
+  openPop(anchor, [
+    el('button', { type: 'button', class: 'col-pop-i', role: 'menuitem', onclick: () => { closePop(); editCollection(c); } }, '✏️ ', 'Renommer'),
+    el('button', { type: 'button', class: 'col-pop-i col-pop-danger', role: 'menuitem', onclick: () => { closePop(); askDeleteCollection(c); } }, '🗑️ ', 'Supprimer'),
+  ]);
+}
+
+// Création ou modification (nom + icône). « add » : jeu à ranger tout de suite dans la nouvelle collection.
+function editCollection(c = null, add = null) {
+  const d = $('#col-dialog');
+  let emoji = c?.emoji || COL_EMOJIS[0];
+  $('#cd-title').textContent = t(c ? 'Modifier la collection' : 'Nouvelle collection');
+  $('#cd-save').textContent = t(c ? 'Enregistrer' : 'Créer');
+  $('#cd-name').value = c?.name || '';
+  $('#cd-error').hidden = true;
+  const paint = () => $('#cd-emojis').querySelectorAll('button').forEach((b) => { b.setAttribute('aria-checked', String(b.dataset.e === emoji)); b.tabIndex = b.dataset.e === emoji ? 0 : -1; });
+  $('#cd-emojis').replaceChildren(...COL_EMOJIS.map((e) => el('button', { type: 'button', role: 'radio', 'data-e': e, 'aria-label': e, onclick: () => { emoji = e; paint(); } }, e)));
+  $('#cd-emojis').onkeydown = (e) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    e.preventDefault();
+    const i = COL_EMOJIS.indexOf(emoji);
+    emoji = COL_EMOJIS[(i + (e.key === 'ArrowRight' ? 1 : COL_EMOJIS.length - 1)) % COL_EMOJIS.length];
+    paint(); $('#cd-emojis').querySelector(`[data-e="${emoji}"]`).focus();
+  };
+  paint();
+  $('#cd-cancel').onclick = () => d.close();
+  $('#cd-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('#cd-name').value.trim();
+    if (!name) { $('#cd-error').textContent = t('Donne un nom à ta collection.'); $('#cd-error').hidden = false; $('#cd-name').focus(); return; }
+    if (state.collections.some((x) => x.id !== c?.id && x.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      $('#cd-error').textContent = t('Tu as déjà une collection avec ce nom.'); $('#cd-error').hidden = false; $('#cd-name').focus(); return;
+    }
+    state.collections = await api.saveCollection({ id: c?.id, name, emoji, add: add?.key });
+    d.close();
+    if (!c && add) toast(t('{g} est rangé dans « {c} ».', { g: add.title, c: name }));
+    render();
+  };
+  d.showModal();
+  $('#cd-name').focus();
+}
+
+function askDeleteCollection(c) {
+  const d = $('#col-delete');
+  $('#cdel-title').textContent = t('Supprimer « {c} » ?', { c: c.name });
+  d.returnValue = '';
+  d.onclose = async () => {
+    if (d.returnValue !== 'ok') return;
+    state.collections = await api.deleteCollection(c.id);
+    if (state.collection === c.id) state.collection = null;
+    render();
+  };
+  d.showModal();
+}
+
 // ---------- Recherche rapide (Ctrl+K) : un jeu ou une action depuis n'importe quelle page ----------
 const quick = { items: [], sel: 0 };
 const fold = (x) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -1793,6 +1962,7 @@ const QK_ACTIONS = () => [
   { label: 'Accueil', hint: 'Va dans l’onglet Accueil', icon: '🏠', words: 'home accueil', run: () => setView('home') },
   { label: 'Bibliothèque', hint: 'Va dans l’onglet Bibliothèque', icon: '📚', words: 'library bibliotheque jeux', run: () => setView('library') },
   { label: 'Statistiques', hint: 'Va dans l’onglet Statistiques', icon: '📊', words: 'stats statistics statistiques', run: () => setView('stats') },
+  { label: 'Nouvelle collection', hint: 'Range tes jeux comme tu veux', icon: '📁', words: 'collection new nouvelle creer', run: () => { setView('library'); editCollection(); } },
   { label: 'Ajouter un jeu', hint: 'Ajoute un jeu installé sans launcher', icon: '➕', words: 'add ajouter jeu', run: () => { setView('library'); addGame(); } },
   { label: 'Actualiser la bibliothèque', hint: 'Cherche les nouveaux jeux installés', icon: '🔄', words: 'refresh actualiser recharger', run: () => load(true) },
   { label: 'Donner mon avis', hint: 'Ouvre le formulaire', icon: '💬', words: 'feedback avis bug idee', run: () => openFeedback() },
@@ -1822,12 +1992,14 @@ function qkSearch(raw) {
     const m = q ? (good(qkScore(label, q)) || good(qkScore(a.words, q))) : null;
     return { a, label, at: m && fold(label).startsWith(q) ? 0 : -1, m };
   }).filter((x) => !q || x.m).slice(0, q ? 4 : 3);
-  return { q, games, actions };
+  const cols = state.collections.map((c) => ({ c, m: q ? qkScore(c.name, q) : null }))
+    .filter((x) => q && x.m && x.m.score >= 50).slice(0, 3).map((x) => ({ c: x.c, at: x.m.at }));
+  return { q, games, actions, cols };
 }
 
 function qkRender() {
   const raw = $('#qk-input').value;
-  const { q, games, actions } = qkSearch(raw);
+  const { q, games, actions, cols } = qkSearch(raw);
   const list = $('#qk-list');
   quick.items = [];
   const rows = [];
@@ -1858,6 +2030,17 @@ function qkRender() {
         el('span', { class: 'qk-txt' }, qkTitle(g.title, at, q.length), el('span', { class: 'qk-m' }, meta)),
         el('span', { class: `qk-go${act.play ? ' play' : ''}` }, act.play ? svg(ICONS.play) : null, act.label, el('kbd', {}, '↵'))),
       act.run, () => select(g.key));
+    }
+  }
+  if (cols.length) {
+    rows.push(el('div', { class: 'qk-h', role: 'presentation' }, 'Collections'));
+    for (const { c, at } of cols) {
+      const open = () => { state.collection = null; showCollection(c.id); };
+      add(el('div', { class: 'qk-row' },
+        el('span', { class: 'qk-ico', 'aria-hidden': 'true' }, c.emoji),
+        el('span', { class: 'qk-txt' }, qkTitle(c.name, at, q.length), el('span', { class: 'qk-m' }, t(colCount(c) === 1 ? '{n} jeu' : '{n} jeux', { n: colCount(c) }))),
+        el('span', { class: 'qk-go' }, 'Ouvrir', el('kbd', {}, '↵'))),
+      open, open);
     }
   }
   if (actions.length) {
