@@ -515,7 +515,7 @@ function registerIpc() {
   });
   ipcMain.handle('favorite:toggle', (_e, key) => store.toggleFavorite(String(key)));
   ipcMain.handle('collections:get', () => store.collections());
-  ipcMain.handle('collections:save', (_e, c) => store.saveCollection({ id: c?.id ? String(c.id) : '', name: c?.name, emoji: c?.emoji, add: c?.add }));
+  ipcMain.handle('collections:save', (_e, c) => store.saveCollection({ id: c?.id ? String(c.id) : '', name: c?.name, color: c?.color, add: c?.add }));
   ipcMain.handle('collections:delete', (_e, id) => store.deleteCollection(String(id)));
   ipcMain.handle('collections:toggle', (_e, id, key) => store.toggleInCollection(String(id), String(key)));
   ipcMain.handle('game:launch', (_e, key, action) => {

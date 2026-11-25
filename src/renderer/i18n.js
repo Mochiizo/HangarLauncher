@@ -280,9 +280,9 @@ const EN = {
   // ---- Collections ----
   'Mes collections': 'My collections', 'Nouvelle collection': 'New collection', 'Nouvelle collection…': 'New collection…',
   'Range tes jeux comme tu veux. Un clic pour commencer :': 'Sort your games your way. One click to start:',
-  'Options de « {c} »': 'Options for "{c}"', 'Renommer ou supprimer': 'Rename or delete', 'Renommer': 'Rename', 'Supprimer': 'Delete',
+  'Options de « {c} »': 'Options for "{c}"', 'Modifier ou supprimer': 'Edit or delete', 'Modifier': 'Edit', 'Supprimer': 'Delete',
   'Ranger dans une collection': 'Add to a collection', 'Ranger {g} dans…': 'Put {g} in…',
-  'Modifier la collection': 'Edit collection', 'Créer': 'Create', 'Nom': 'Name', 'Icône': 'Icon',
+  'Modifier la collection': 'Edit collection', 'Créer': 'Create', 'Nom': 'Name', 'Couleur': 'Color', 'Ambre': 'Amber', 'Rouge': 'Red', 'Orange': 'Orange', 'Vert': 'Green', 'Turquoise': 'Teal', 'Bleu': 'Blue', 'Indigo': 'Indigo', 'Violet': 'Purple', 'Rose': 'Pink', 'Gris': 'Gray',
   'En cours, À finir, Coop avec potes…': 'Playing, Backlog, Co-op with friends…',
   'Donne un nom à ta collection.': 'Give your collection a name.', 'Tu as déjà une collection avec ce nom.': 'You already have a collection with this name.',
   '{g} est rangé dans « {c} ».': '{g} was added to "{c}".', 'Supprimer « {c} » ?': 'Delete "{c}"?', 'Supprimer cette collection ?': 'Delete this collection?',

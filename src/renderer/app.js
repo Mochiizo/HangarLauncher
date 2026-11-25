@@ -133,8 +133,8 @@ function renderSidebar(list) {
   const names = { all: 'Tous les jeux', installed: 'Jeux installés', fav: 'Favoris' };
   const col = currentCollection();
   if (col) {
-    $('#list-title').replaceChildren(`${col.emoji} `, el('span', { class: 'no-tr' }, col.name), ` (${list.length})`);
-    $('#grid-title').replaceChildren(`${col.emoji} `, el('span', { class: 'no-tr' }, col.name));
+    $('#list-title').replaceChildren(colDot(col), el('span', { class: 'no-tr' }, col.name), ` (${list.length})`);
+    $('#grid-title').replaceChildren(colDot(col, 'lg'), el('span', { class: 'no-tr' }, col.name));
   } else {
     $('#list-title').textContent = `${names[state.filter]} (${list.length})`;
     $('#grid-title').textContent = names[state.filter];
@@ -1784,8 +1784,11 @@ $('#open-settings').addEventListener('click', openSettings);
 $('#refresh').addEventListener('click', () => load(true));
 
 // ---------- Collections perso (« En cours », « À finir », « Coop avec potes »…) ----------
-const COL_EMOJIS = ['▶️', '⏳', '🏆', '👥', '🎮', '⭐', '❤️', '🔥', '🧩', '⚔️', '🚀', '🌙', '🎯', '📌', '🛋️', '📁'];
-const COL_SUGGEST = [['▶️', 'En cours', 'Playing'], ['⏳', 'À finir', 'Backlog'], ['👥', 'Coop avec potes', 'Co-op with friends'], ['🏆', 'Terminés', 'Completed']];
+const COL_COLORS = [['#F5A632', 'Ambre'], ['#F87171', 'Rouge'], ['#FB923C', 'Orange'], ['#4ADE80', 'Vert'], ['#2DD4BF', 'Turquoise'],
+  ['#60A5FA', 'Bleu'], ['#818CF8', 'Indigo'], ['#C084FC', 'Violet'], ['#F472B6', 'Rose'], ['#94A3B8', 'Gris']];
+const COL_SUGGEST = [['#4ADE80', 'En cours', 'Playing'], ['#F5A632', 'À finir', 'Backlog'], ['#60A5FA', 'Coop avec potes', 'Co-op with friends'], ['#C084FC', 'Terminés', 'Completed']];
+const colColor = (c) => (/^#[0-9a-f]{6}$/i.test(c?.color || '') ? c.color : '#F5A632');
+const colDot = (c, size = '') => el('span', { class: `col-dot${size ? ` ${size}` : ''}`, style: `--dot:${colColor(c)}`, 'aria-hidden': 'true' });
 const currentCollection = () => state.collections.find((c) => c.id === state.collection) || null;
 const colCount = (c) => { const have = new Set(state.games.map((g) => g.key)); return c.games.filter((k) => have.has(k)).length; };
 
@@ -1806,16 +1809,16 @@ function renderCollections() {
   if (!state.collections.length) {
     box.replaceChildren(head,
       el('p', { class: 'cols-empty' }, 'Range tes jeux comme tu veux. Un clic pour commencer :'),
-      el('div', { class: 'cols-suggest' }, ...COL_SUGGEST.map(([e, fr, en]) => {
+      el('div', { class: 'cols-suggest' }, ...COL_SUGGEST.map(([color, fr, en]) => {
         const n = LANG === 'en' ? en : fr;
-        return el('button', { type: 'button', class: 'pill no-tr', onclick: async () => { state.collections = await api.saveCollection({ name: n, emoji: e }); render(); } }, `${e} ${n}`);
+        return el('button', { type: 'button', class: 'pill no-tr', onclick: async () => { state.collections = await api.saveCollection({ name: n, color }); render(); } }, colDot({ color }), n);
       })));
     return;
   }
   box.replaceChildren(head, ...state.collections.map((c) => el('div', { class: 'col-item' },
     el('button', { type: 'button', class: 'col-row', 'aria-pressed': String(state.collection === c.id), onclick: () => showCollection(c.id) },
-      el('span', { class: 'col-e', 'aria-hidden': 'true' }, c.emoji), el('span', { class: 'col-n no-tr' }, c.name), el('span', { class: 'col-c' }, String(colCount(c)))),
-    el('button', { type: 'button', class: 'col-more', 'aria-label': t('Options de « {c} »', { c: c.name }), title: 'Renommer ou supprimer', 'aria-haspopup': 'menu', onclick: (e) => openColOptions(c, e.currentTarget) },
+      colDot(c), el('span', { class: 'col-n no-tr' }, c.name), el('span', { class: 'col-c' }, String(colCount(c)))),
+    el('button', { type: 'button', class: 'col-more', 'aria-label': t('Options de « {c} »', { c: c.name }), title: 'Modifier ou supprimer', 'aria-haspopup': 'menu', onclick: (e) => openColOptions(c, e.currentTarget) },
       el('span', { 'aria-hidden': 'true' }, '⋯')))));
 }
 
@@ -1870,7 +1873,7 @@ function openColMenu(g, anchor) {
         const cnt = anchor.querySelector('.col-count'); const n = state.collections.filter((x) => x.games.includes(g.key)).length;
         if (n && cnt) cnt.textContent = String(n); else if (n) anchor.append(el('span', { class: 'col-count' }, String(n))); else cnt?.remove();
       }
-    }, el('span', { class: 'cbx', 'aria-hidden': 'true' }, on ? '✓' : ''), el('span', { 'aria-hidden': 'true' }, c.emoji), el('span', { class: 'no-tr' }, c.name));
+    }, el('span', { class: 'cbx', 'aria-hidden': 'true' }, on ? '✓' : ''), colDot(c), el('span', { class: 'no-tr' }, c.name));
   };
   openPop(anchor, [
     ...state.collections.map(item),
@@ -1881,27 +1884,29 @@ function openColMenu(g, anchor) {
 function openColOptions(c, anchor) {
   if (popMenu?.anchor === anchor) return closePop();
   openPop(anchor, [
-    el('button', { type: 'button', class: 'col-pop-i', role: 'menuitem', onclick: () => { closePop(); editCollection(c); } }, '✏️ ', 'Renommer'),
-    el('button', { type: 'button', class: 'col-pop-i col-pop-danger', role: 'menuitem', onclick: () => { closePop(); askDeleteCollection(c); } }, '🗑️ ', 'Supprimer'),
+    el('button', { type: 'button', class: 'col-pop-i', role: 'menuitem', onclick: () => { closePop(); editCollection(c); } }, 'Modifier'),
+    el('button', { type: 'button', class: 'col-pop-i col-pop-danger', role: 'menuitem', onclick: () => { closePop(); askDeleteCollection(c); } }, 'Supprimer'),
   ]);
 }
 
 // Création ou modification (nom + icône). « add » : jeu à ranger tout de suite dans la nouvelle collection.
 function editCollection(c = null, add = null) {
   const d = $('#col-dialog');
-  let emoji = c?.emoji || COL_EMOJIS[0];
+  let color = colColor(c || { color: COL_COLORS[(state.collections.length) % COL_COLORS.length][0] });
+  if (!COL_COLORS.some(([h]) => h === color)) color = COL_COLORS[0][0];
   $('#cd-title').textContent = t(c ? 'Modifier la collection' : 'Nouvelle collection');
   $('#cd-save').textContent = t(c ? 'Enregistrer' : 'Créer');
   $('#cd-name').value = c?.name || '';
   $('#cd-error').hidden = true;
-  const paint = () => $('#cd-emojis').querySelectorAll('button').forEach((b) => { b.setAttribute('aria-checked', String(b.dataset.e === emoji)); b.tabIndex = b.dataset.e === emoji ? 0 : -1; });
-  $('#cd-emojis').replaceChildren(...COL_EMOJIS.map((e) => el('button', { type: 'button', role: 'radio', 'data-e': e, 'aria-label': e, onclick: () => { emoji = e; paint(); } }, e)));
-  $('#cd-emojis').onkeydown = (e) => {
+  const box = $('#cd-colors');
+  const paint = () => box.querySelectorAll('button').forEach((b) => { const on = b.dataset.c === color; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; });
+  box.replaceChildren(...COL_COLORS.map(([hex, name]) => el('button', { type: 'button', role: 'radio', 'data-c': hex, 'aria-label': t(name), title: t(name), style: `--dot:${hex}`, onclick: () => { color = hex; paint(); } })));
+  box.onkeydown = (e) => {
     if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
     e.preventDefault();
-    const i = COL_EMOJIS.indexOf(emoji);
-    emoji = COL_EMOJIS[(i + (e.key === 'ArrowRight' ? 1 : COL_EMOJIS.length - 1)) % COL_EMOJIS.length];
-    paint(); $('#cd-emojis').querySelector(`[data-e="${emoji}"]`).focus();
+    const i = COL_COLORS.findIndex(([h]) => h === color);
+    color = COL_COLORS[(i + (e.key === 'ArrowRight' ? 1 : COL_COLORS.length - 1)) % COL_COLORS.length][0];
+    paint(); box.querySelector(`[data-c="${color}"]`).focus();
   };
   paint();
   $('#cd-cancel').onclick = () => d.close();
@@ -1912,7 +1917,7 @@ function editCollection(c = null, add = null) {
     if (state.collections.some((x) => x.id !== c?.id && x.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
       $('#cd-error').textContent = t('Tu as déjà une collection avec ce nom.'); $('#cd-error').hidden = false; $('#cd-name').focus(); return;
     }
-    state.collections = await api.saveCollection({ id: c?.id, name, emoji, add: add?.key });
+    state.collections = await api.saveCollection({ id: c?.id, name, color, add: add?.key });
     d.close();
     if (!c && add) toast(t('{g} est rangé dans « {c} ».', { g: add.title, c: name }));
     render();
@@ -2037,7 +2042,7 @@ function qkRender() {
     for (const { c, at } of cols) {
       const open = () => { state.collection = null; showCollection(c.id); };
       add(el('div', { class: 'qk-row' },
-        el('span', { class: 'qk-ico', 'aria-hidden': 'true' }, c.emoji),
+        el('span', { class: 'qk-ico', 'aria-hidden': 'true' }, colDot(c, 'lg')),
         el('span', { class: 'qk-txt' }, qkTitle(c.name, at, q.length), el('span', { class: 'qk-m' }, t(colCount(c) === 1 ? '{n} jeu' : '{n} jeux', { n: colCount(c) }))),
         el('span', { class: 'qk-go' }, 'Ouvrir', el('kbd', {}, '↵'))),
       open, open);

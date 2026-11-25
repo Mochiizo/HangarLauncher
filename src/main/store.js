@@ -12,7 +12,7 @@ const empty = () => ({
   epicTotals: {},  // { "epic-Foo": minutes }
   epicLast: {},    // { "epic-Foo": timestampMs }
   favorites: {},
-  collections: [],  // [{ id, name, emoji, games: [gameKey…] }] collections perso, dans l'ordre de création
+  collections: [],  // [{ id, name, color, games: [gameKey…] }] collections perso, dans l'ordre de création
   nameCache: {},
   assetCache: {},   // { appid: { at, cover, hero, header } } images boutique Steam
   titleCache: {},   // { nomNormalisé: { at, appid } } jeux Ubisoft/EA/Xbox retrouvés sur Steam (images)
@@ -86,13 +86,13 @@ function createStore(dir) {
 
     // ---- Collections perso ----
     collections: () => db.collections,
-    saveCollection({ id, name, emoji, add }) {
+    saveCollection({ id, name, color, add }) {
       name = String(name || '').trim().slice(0, 40);
-      emoji = String(emoji || '📁').slice(0, 8);
+      color = /^#[0-9a-f]{6}$/i.test(String(color)) ? String(color) : '#F5A632';
       if (!name) return db.collections;
       const found = id && db.collections.find((c) => c.id === id);
-      if (found) Object.assign(found, { name, emoji });
-      else db.collections.push({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, emoji, games: add ? [String(add)] : [] });
+      if (found) Object.assign(found, { name, color });
+      else db.collections.push({ id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color, games: add ? [String(add)] : [] });
       save();
       return db.collections;
     },
